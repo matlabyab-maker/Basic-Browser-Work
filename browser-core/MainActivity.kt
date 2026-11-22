@@ -119,10 +119,11 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(4), dp(3), dp(4), dp(3))
         }
+    
         tabScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            fillViewport = false
-            addView(tabStrip, HorizontalScrollView.LayoutParams(WRAP, MATCH))
+            setFillViewport(false)
+            addView(tabStrip, FrameLayout.LayoutParams(WRAP, MATCH))
         }
         root.addView(tabScroll, LinearLayout.LayoutParams(MATCH, dp(44)))
 
