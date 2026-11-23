@@ -798,7 +798,7 @@ class EasyKeyboardService : InputMethodService() {
     }
 
     private fun showEmojiPicker() {
-        val groups = linkedMapOf(
+       val groups = linkedMapOf(
             "Faces" to listOf("😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😍","🥰","😘","😋","😎","🤔","🤗","😭","😢","😡","🥳","😴"),
             "Animals" to listOf("🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦉","🐴","🦄","🐝","🦋","🐢"),
             "Food" to listOf("🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍒","🍑","🥭","🍍","🥥","🥑","🍅","🥕","🌽","🥦","🍞","🧀","🍕","🍔","🍟","🍰"),
@@ -837,6 +837,7 @@ class EasyKeyboardService : InputMethodService() {
             "💘","💝","💟","♥️","♡","✨","⭐","🌟","☀️","🌙",
             "☁️","⚡","🔥","💧","🌈","❄️","🌸","🌹","🌻","🍀"
         ).distinct().take(70)
+        
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(6), dp(6), dp(6), dp(6)) }
         val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         val tabsScroll = HorizontalScrollView(this).apply {
