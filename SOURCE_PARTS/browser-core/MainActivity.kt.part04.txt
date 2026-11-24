@@ -1,0 +1,158 @@
+                const s = window.getSelection ? String(window.getSelection()).trim() : '';
+                if (s) {
+                  try { window.BasicBrowserWorkBridge.selectionChanged(s); } catch(e) {}
+                }
+              });
+            })();
+            """.trimIndent(), null
+        )
+    }
+
+    inner class PageBridge {
+        @JavascriptInterface
+        fun selectionChanged(text: String) {
+            val selected = text.trim().take(12000)
+            if (selected.isNotBlank()) {
+                prefs.edit().putString("last_selected_text", selected).apply()
+            }
+        }
+    }
+
+    private fun savePageText() {
+        val current = web
+        val pageTitle = current.title?.takeIf { it.isNotBlank() } ?: "Web page"
+        current.evaluateJavascript(
+            "(function(){return document.body ? document.body.innerText : document.documentElement.innerText;})()"
+        ) { result ->
+            try {
+                val text = JSONArray("[${result ?: "null"}]").optString(0, "")
+                val content = "$pageTitle\n${current.url.orEmpty()}\n\n$text"
+                val file = File(cacheDir, "page_${System.currentTimeMillis()}.txt")
+                file.writeText(content, Charsets.UTF_8)
+                saveFileToDownloads(file, safeDownloadName("$pageTitle.txt"), "text/plain")
+                file.delete()
+                toast("Page text saved to Downloads")
+            } catch (e: Exception) {
+                toast("Could not save page text: ${e.message ?: "unknown error"}")
+            }
+        }
+    }
+
+    private fun chooseFiles() {
+        try {
+            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "*/*"
+                putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+            }
+            startActivityForResult(intent, fileRequest)
+        } catch (e: Exception) {
+            toast("Unable to open device files")
+        }
+    }
+
+    private fun answerDialog() {
+        val selected = prefs.getString("last_selected_text", "").orEmpty()
+        val input = EditText(this).apply {
+            hint = "Ask about the selected text or enter a question"
+            setText(selected)
+            minLines = 3
+            maxLines = 7
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Answer")
+            .setView(input)
+            .setPositiveButton("Search") { _, _ ->
+                val query = input.text.toString().trim()
+                if (query.isNotBlank()) {
+                    createTab("https://www.google.com/search?q=${Uri.encode(query)}", true)
+                }
+            }
+            .setNeutralButton("Copy") { _, _ ->
+                val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("Question", input.text.toString()))
+                toast("Text copied")
+            }
+            .setNegativeButton("Close", null)
+            .show()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != fileRequest) return
+        val callback = fileChooserCallback
+        if (callback != null) {
+            val results = if (resultCode == RESULT_OK && data != null) {
+                val clip = data.clipData
+                when {
+                    clip != null -> Array(clip.itemCount) { i -> clip.getItemAt(i).uri }
+                    data.data != null -> arrayOf(data.data!!)
+                    else -> null
+                }
+            } else null
+            callback.onReceiveValue(results)
+            fileChooserCallback = null
+            return
+        }
+        if (resultCode == RESULT_OK && data != null) {
+            val uris = mutableListOf<Uri>()
+            data.clipData?.let { clip ->
+                for (i in 0 until clip.itemCount) uris.add(clip.getItemAt(i).uri)
+            }
+            data.data?.let { if (uris.isEmpty()) uris.add(it) }
+            if (uris.isNotEmpty()) {
+                val names = uris.map { it.lastPathSegment ?: it.toString() }
+                AlertDialog.Builder(this).setTitle("Selected files")
+                    .setItems(names.toTypedArray()) { _, which ->
+                        val uri = uris[which]
+                        try {
+                            val viewIntent = Intent(Intent.ACTION_VIEW).apply {
+                                setDataAndType(uri, contentResolver.getType(uri) ?: "*/*")
+                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            }
+                            startActivity(viewIntent)
+                        } catch (_: Exception) {
+                            copyLocalUriToDownloads(uri, null, contentResolver.getType(uri))
+                        }
+                    }
+                    .setNegativeButton("Close", null).show()
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 808) {
+            val pending = pendingDownload
+            pendingDownload = null
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED && pending != null) {
+                startDownload(pending)
+            } else {
+                toast("Storage permission was not granted")
+            }
+        }
+    }
+
+    override fun onDestroy() {
+        videoBlinking = false
+        videoBlinkHandler.removeCallbacksAndMessages(null)
+        try { blobOutput?.close() } catch (_: Exception) {}
+        blobTempFile?.delete()
+        tabViews.forEach {
+            try { it.stopLoading(); it.destroy() } catch (_: Exception) {}
+        }
+        tabViews.clear()
+        super.onDestroy()
+    }
+
+    companion object {
+        private const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
+        private const val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
+    }
+}

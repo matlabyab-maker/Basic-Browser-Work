@@ -1,0 +1,400 @@
+        AlertDialog.Builder(this).setTitle("Bookmarks").setItems(choices) { _, which ->
+            when (which) {
+                0 -> showUrlList("Bookmarks", bookmarks, true)
+                1 -> {
+                    val url = web.url ?: return@setItems
+                    if (!url.startsWith("http") || url.contains("main-browser.home")) { toast("Open a website before bookmarking"); return@setItems }
+                    if (!bookmarks.contains(url)) bookmarks.add(url)
+                    saveList("bookmarks", bookmarks)
+                    toast("Bookmark added to Home")
+                }
+                2 -> showHome()
+                3 -> showUrlList("Saved Bookmarks", bookmarks, true)
+            }
+        }.show()
+    }
+
+    private fun showHome() {
+        val entries = bookmarks.distinct()
+        val rows = if (entries.isEmpty()) {
+            "<p class='empty'>No bookmarks yet. Use Bookmarks → Add current page to Home.</p>"
+        } else entries.joinToString("") { url ->
+             val safeUrl = url.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+            val label = compactAddress(url).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            "<a class='item' href=\"$safeUrl\">$label</a>"
+        }
+        val html = """
+            <!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
+            <title>Basic Browser Work Home</title><style>
+            body{font-family:sans-serif;background:#202020;color:#fff;padding:18px}
+            h2{color:#ffd54f} .item{display:block;padding:15px;margin:9px 0;background:#383838;
+            border-radius:8px;color:#ffe082;text-decoration:none;font-size:16px}
+            .empty{color:#bbb;font-size:15px}
+            </style></head><body><h2>Basic Browser Work</h2>$rows</body></html>
+        """.trimIndent()
+        web.loadDataWithBaseURL("https://main-browser.home/", html, "text/html", "UTF-8", null)
+        status.text = "Home • ${entries.size} bookmarks"
+    }
+
+    private fun showUrlList(title: String, values: List<String>, open: Boolean) {
+        if (values.isEmpty()) { toast("No items"); return }
+        val labels = values.map { compactAddress(it) }
+        AlertDialog.Builder(this).setTitle(title).setItems(labels.toTypedArray()) { _, index ->
+            if (open) web.loadUrl(values[index])
+            else AlertDialog.Builder(this).setMessage(compactAddress(values[index])).setPositiveButton("Open") { _, _ -> web.loadUrl(values[index]) }
+                .setNegativeButton("Close", null).show()
+        }.setNegativeButton("Close", null).show()
+    }
+
+    private fun compactAddress(value: String): String {
+        return try {
+            val uri = Uri.parse(value)
+            val host = uri.host ?: value
+            val path = uri.path.orEmpty().take(36)
+            (host + path).take(64)
+        } catch (_: Exception) { value.take(64) }
+    }
+
+    private fun pasteFromClipboard() {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (text.isNullOrEmpty()) { toast("Clipboard is empty"); return }
+        web.evaluateJavascript("""(function(){let e=document.activeElement;if(!e||!(e.isContentEditable||/^(TEXTAREA|INPUT)$/.test(e.tagName)))return 'NO_FIELD';e.focus();const v=${JSONObject.quote(text)};if(e.isContentEditable){document.execCommand('insertText',false,v);}else{const a=e.selectionStart??e.value.length,b=e.selectionEnd??e.value.length;e.setRangeText(v,a,b,'end');e.dispatchEvent(new Event('input',{bubbles:true}));}return 'PASTED';})()""") { r -> toast(if (r?.contains("PASTED") == true) "Pasted" else "Tap a text field first") }
+    }
+
+    private fun toggleFullScreen() {
+        fullScreen = !fullScreen
+        headerBar.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        navBar.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        bottomBar.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        status.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        window.decorView.systemUiVisibility = if (fullScreen) (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) else View.SYSTEM_UI_FLAG_VISIBLE
+    }
+
+    private fun showDownloadsInfo() {
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val cursor = manager.query(DownloadManager.Query())
+        val rows = mutableListOf<Pair<Long, String>>()
+        cursor?.use {
+            val idCol = it.getColumnIndex(DownloadManager.COLUMN_ID)
+            val titleCol = it.getColumnIndex(DownloadManager.COLUMN_TITLE)
+            val statusCol = it.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            while (it.moveToNext()) {
+                val id = it.getLong(idCol)
+                val title = it.getString(titleCol) ?: "Download"
+                val state = when (it.getInt(statusCol)) {
+                    DownloadManager.STATUS_SUCCESSFUL -> "Completed"
+                    DownloadManager.STATUS_FAILED -> "Failed"
+                    DownloadManager.STATUS_RUNNING -> "Downloading"
+                    DownloadManager.STATUS_PAUSED -> "Paused"
+                    else -> "Pending"
+                }
+                rows.add(id to "$title — $state")
+            }
+        }
+        val labels = rows.map { it.second }.toMutableList()
+        labels.add("Open device Downloads folder")
+        AlertDialog.Builder(this).setTitle("Downloads").setItems(labels.toTypedArray()) { _, which ->
+            if (which == rows.size) {
+                try { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)) }
+                catch (_: Exception) { toast("Open the Downloads folder in your file manager") }
+            } else {
+                try {
+                    val uri = manager.getUriForDownloadedFile(rows[which].first)
+                    if (uri != null) startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, contentResolver.getType(uri) ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                    else toast("This download is not ready yet")
+                } catch (_: Exception) { toast("Unable to open downloaded file") }
+            }
+        }.setNegativeButton("Close", null).show()
+    }
+
+    private fun startDownload(item: PendingDownload) {
+        val uri = Uri.parse(item.url)
+        if (uri.scheme != "http" && uri.scheme != "https") {
+            when (uri.scheme?.lowercase(Locale.ROOT)) {
+                "blob", "data" -> downloadPageGeneratedUrl(web, item.url, item.disposition, item.mimeType)
+                "content", "file" -> copyLocalUriToDownloads(uri, item.disposition, item.mimeType)
+                else -> toast("Unsupported download link type")
+            }
+            return
+        }
+        if (Build.VERSION.SDK_INT in 23..28 &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            pendingDownload = item
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 808)
+            return
+        }
+        try {
+            val ext = MimeTypeMap.getFileExtensionFromUrl(item.url)
+            val visibleName = downloadLinkNames.remove(item.url)
+            val selectedName = visibleName?.takeIf { it.isNotBlank() }?.let { label ->
+                val cleaned = safeDownloadName(label)
+                if (cleaned.contains('.') || ext.isBlank()) cleaned else "$cleaned.$ext"
+            } ?: guessName(item.disposition, item.url)
+            val name = safeDownloadName(selectedName)
+            val mime = item.mimeType?.takeIf { it.isNotBlank() }
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+            val request = DownloadManager.Request(uri)
+                .setTitle(name)
+                .setDescription("Basic Browser Work download")
+                .setMimeType(mime)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverRoaming(true)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            if (Build.VERSION.SDK_INT >= 24) request.setAllowedOverMetered(true)
+            item.userAgent?.takeIf { it.isNotBlank() }?.let { request.addRequestHeader("User-Agent", it) }
+            CookieManager.getInstance().getCookie(item.url)?.let { request.addRequestHeader("Cookie", it) }
+            web.url?.let { request.addRequestHeader("Referer", it) }
+            val id = (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            prefs.edit().putLong("last_download_id", id).apply()
+            status.text = "Download queued: $name"
+            toast("Download started")
+        } catch (e: Exception) {
+            status.text = "Download failed to start"
+            toast("Download error: ${e.message ?: "unknown error"}")
+        }
+    }
+
+    private fun downloadPageGeneratedUrl(view: WebView, url: String, disposition: String?, mime: String?) {
+        val name = safeDownloadName(guessName(disposition, url))
+        val quotedUrl = JSONObject.quote(url)
+        val quotedName = JSONObject.quote(name)
+        val quotedMime = JSONObject.quote(mime ?: "application/octet-stream")
+        view.evaluateJavascript("""
+            (async function(){
+              try {
+                const response = await fetch($quotedUrl, {credentials:'include'});
+                if (!response.ok && response.status !== 0) throw new Error('HTTP ' + response.status);
+                const blob = await response.blob();
+                const name = $quotedName;
+                const type = blob.type || $quotedMime || 'application/octet-stream';
+                window.BasicBrowserWorkDownloadBridge.beginGeneratedDownload(name, type);
+                const reader = blob.stream().getReader();
+                while (true) {
+                  const part = await reader.read();
+                  if (part.done) break;
+                  const bytes = part.value;
+                  let binary = '';
+                  for (let i=0; i<bytes.length; i+=0x8000) {
+                    binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+0x8000, bytes.length)));
+                  }
+                  window.BasicBrowserWorkDownloadBridge.appendGeneratedDownload(btoa(binary));
+                }
+                window.BasicBrowserWorkDownloadBridge.finishGeneratedDownload();
+                return 'OK';
+              } catch(e) {
+                window.BasicBrowserWorkDownloadBridge.failGeneratedDownload(String(e));
+                return 'ERROR:' + String(e);
+              }
+            })()
+        """.trimIndent()) { result ->
+            val value = result?.trim('"') ?: ""
+            if (value.startsWith("ERROR:")) {
+                status.text = "Generated download failed"
+                toast("Cannot download this generated file: ${value.removePrefix("ERROR:")}")
+            } else if (value == "OK") {
+                status.text = "Generated file saved"
+            }
+        }
+    }
+
+    inner class DownloadNameBridge {
+        @JavascriptInterface
+        fun remember(url: String, readableName: String) {
+            val clean = readableName.trim().replace(Regex("[\\r\\n\\t]+"), " ").take(100)
+            if (clean.isNotBlank() && (url.startsWith("http://") || url.startsWith("https://"))) downloadLinkNames[url] = clean
+        }
+    }
+
+    inner class DownloadBridge {
+        @JavascriptInterface fun beginGeneratedDownload(name: String, mime: String) {
+            synchronized(this@MainActivity) {
+                try {
+                    blobOutput?.close()
+                    blobDisplayName = safeDownloadName(name)
+                    blobMimeType = mime.ifBlank { "application/octet-stream" }
+                    blobBytes = 0L
+                    blobTempFile = File(cacheDir, "mainbrowser_${System.currentTimeMillis()}.part")
+                    blobOutput = FileOutputStream(blobTempFile!!)
+
+            @JavascriptInterface fun appendGeneratedDownload(encodedChunk: String) {
+                synchronized(this@MainActivity) {
+                    try {
+                        val bytes = Base64.decode(encodedChunk, Base64.DEFAULT)
+                        blobOutput?.write(bytes)
+                        blobBytes += bytes.size
+                    } catch (e: Exception) {
+                        android.util.Log.e("BasicBrowserWork", "Could not append generated download chunk", e)
+                    }
+                }
+            }
+
+            @JavascriptInterface fun finishGeneratedDownload() {
+                synchronized(this@MainActivity) {
+                    try {
+                        blobOutput?.flush()
+                        blobOutput?.close()
+                        blobOutput = null
+                        val source = blobTempFile ?: throw IllegalStateException("Download data is missing")
+                        if (!source.exists() || source.length() == 0L) {
+                            throw IllegalStateException("The downloaded file is empty")
+                        }
+                        val savedUri = saveFileToDownloads(source, blobDisplayName, blobMimeType)
+                        source.delete()
+                        blobTempFile = null
+                        runOnUiThread {
+                            status.text = "Saved: $blobDisplayName"
+                            toast("File saved to Downloads")
+                        }
+                    } catch (e: Exception) {
+                        runOnUiThread {
+                            status.text = "Generated download failed"
+                            toast("Save failed: ${e.message ?: "unknown error"}")
+                        }
+                    } finally {
+                        try { blobOutput?.close() } catch (_: Exception) {}
+                        blobOutput = null
+                    }
+                }
+            }
+
+            @JavascriptInterface fun failGeneratedDownload(reason: String) {
+                synchronized(this@MainActivity) {
+                    try { blobOutput?.close() } catch (_: Exception) {}
+                    blobOutput = null
+                    blobTempFile?.delete()
+                    blobTempFile = null
+                }
+                runOnUiThread {
+                    status.text = "Generated download failed"
+                    toast("Download failed: ${reason.take(120)}")
+                }
+            }
+        }
+
+    private fun saveFileToDownloads(source: File, displayName: String, mimeType: String): Uri? {
+        val name = safeDownloadName(displayName)
+        val mime = mimeType.ifBlank { "application/octet-stream" }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val values = ContentValues().apply {
+                put(MediaStore.Downloads.DISPLAY_NAME, name)
+                put(MediaStore.Downloads.MIME_TYPE, mime)
+                put(MediaStore.Downloads.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("Cannot create destination file")
+            try {
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    source.inputStream().use { input -> input.copyTo(output) }
+                } ?: throw IllegalStateException("Cannot open destination file")
+                values.clear()
+                values.put(MediaStore.Downloads.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                return uri
+            } catch (e: Exception) {
+                contentResolver.delete(uri, null, null)
+                throw e
+            }
+        } else {
+            val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+            if (!dir.exists() && !dir.mkdirs()) throw IllegalStateException("Cannot access Downloads folder")
+            val target = uniqueFile(File(dir, name))
+            source.copyTo(target, overwrite = false)
+            return Uri.fromFile(target)
+        }
+    }
+
+    private fun copyLocalUriToDownloads(uri: Uri, disposition: String?, mimeType: String?) {
+        try {
+            val name = safeDownloadName(guessName(disposition, uri.toString()))
+            val temp = File(cacheDir, "local_${System.currentTimeMillis()}.part")
+            contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(temp).use { output -> input.copyTo(output) }
+            } ?: throw IllegalStateException("Cannot read selected file")
+            saveFileToDownloads(temp, name, mimeType ?: contentResolver.getType(uri) ?: "application/octet-stream")
+            temp.delete()
+            toast("File copied to Downloads")
+        } catch (e: Exception) {
+            toast("Copy failed: ${e.message ?: "unknown error"}")
+        }
+    }
+
+    private fun uniqueFile(file: File): File {
+        if (!file.exists()) return file
+        val base = file.nameWithoutExtension
+        val ext = file.extension.takeIf { it.isNotBlank() }?.let { ".$it" } ?: ""
+        var index = 1
+        while (true) {
+            val candidate = File(file.parentFile, "$base ($index)$ext")
+            if (!candidate.exists()) return candidate
+            index++
+        }
+    }
+
+    private fun safeDownloadName(raw: String): String {
+        val cleaned = raw.trim()
+            .replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]"), "_")
+            .replace(Regex("\\s+"), " ")
+            .trim('.', ' ')
+            .take(150)
+        return cleaned.ifBlank { "download.bin" }
+    }
+
+    private fun guessName(disposition: String?, url: String): String {
+        val fromDisposition = disposition?.let {
+            Regex("""filename\*?=(?:UTF-8''|"?)([^";]+)""", RegexOption.IGNORE_CASE)
+                .find(it)?.groupValues?.getOrNull(1)?.trim('"')
+        }?.takeIf { it.isNotBlank() }
+        val fromUrl = try {
+            Uri.decode(Uri.parse(url).lastPathSegment.orEmpty()).takeIf { it.isNotBlank() }
+        } catch (_: Exception) { null }
+        return safeDownloadName(fromDisposition ?: fromUrl ?: "download.bin")
+    }
+
+    private fun readList(key: String): List<String> {
+        val raw = prefs.getString(key, null) ?: return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            (0 until array.length()).mapNotNull { i ->
+                array.optString(i).takeIf { it.isNotBlank() }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    private fun saveList(key: String, values: List<String>) {
+        val array = JSONArray()
+        values.distinct().forEach { array.put(it) }
+        prefs.edit().putString(key, array.toString()).apply()
+    }
+
+    private fun addHistory(url: String) {
+        if (url.isBlank() || url == "about:blank" || url.startsWith("data:")) return
+        history.remove(url)
+        history.add(url)
+        while (history.size > 500) history.removeAt(0)
+        saveList("history", history)
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun toggleAutoSelect() {
+        autoSelect = !autoSelect
+        toast(if (autoSelect) "Auto Select enabled" else "Auto Select disabled")
+        if (autoSelect) injectAutoSelect()
+    }
+
+    private fun injectAutoSelect() {
+        if (!autoSelect) return
+        web.evaluateJavascript(
+            """
+            (function(){
+              if (window.__basicBrowserAutoSelect) return;
+              window.__basicBrowserAutoSelect = true;
+              document.addEventListener('mouseup', function(){

@@ -1,0 +1,400 @@
+        }
+    }
+                           
+
+    private fun startVideoBlink() {
+        if (videoBlinking) return
+        videoBlinking = true
+        val task = object : Runnable {
+            var lit = false
+            override fun run() {
+                if (!videoBlinking || videoCandidates.isEmpty()) {
+                    videoLinksButton.alpha = 1f
+                    videoBlinking = false
+                    return
+                }
+                lit = !lit
+                videoLinksButton.alpha = if (lit) 1f else 0.35f
+                videoBlinkHandler.postDelayed(this, 550)
+            }
+        }
+        videoBlinkHandler.post(task)
+    }
+
+    private fun scanPageForVideos(view: WebView) {
+        view.evaluateJavascript("""
+          (function(){
+            const out = new Map();
+            const add = (u,t,m) => { try { if(u && /^https?:/i.test(u)) out.set(u,{url:u,title:t||'',mime:m||''}); } catch(e){} };
+            document.querySelectorAll('video,audio').forEach(v=>{
+              add(v.currentSrc || v.src, v.getAttribute('title') || document.title, v.getAttribute('type') || '');
+              v.querySelectorAll('source').forEach(s=>add(s.src, document.title, s.type));
+            });
+            document.querySelectorAll('source[src]').forEach(s=>add(s.src,document.title,s.type));
+            try { performance.getEntriesByType('resource').forEach(e=>{
+              const u=e.name||'';
+              if(/\\.(mp4|m4v|webm|mov|mkv|3gp|m3u8|mpd|ts)(\\?|$)/i.test(u)) add(u,document.title,'');
+            }); } catch(e){}
+            out.forEach(x=>window.BasicBrowserWorkVideoBridge.found(x.url,x.title,x.mime));
+            return out.size;
+          })();
+        """.trimIndent(), null)
+    }
+
+    inner class VideoScanBridge {
+        @JavascriptInterface fun found(url: String, title: String, mime: String) {
+            addVideoCandidate(url, title, mime, videoKind(url))
+        }
+    }
+
+    private fun showVideoLinks() {
+        videoBlinking = false
+        videoBlinkHandler.removeCallbacksAndMessages(null)
+        videoLinksButton.alpha = 1f
+        videoLinksButton.text = "Video Links"
+        val items = videoCandidates.values.toList()
+        val labels = items.map { "${it.title}  •  ${it.kind}" }.toMutableList()
+        labels.add(0, "Extract links from this page (yt-dlp)")
+        AlertDialog.Builder(this).setTitle("Video Links (${items.size})")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    analyzeCurrentPageWithExtractor()
+                } else {
+                    val item = items[which - 1]
+                    AlertDialog.Builder(this).setTitle("Ready to download?")
+                        .setMessage("${item.title}\n${item.kind}\n\nThe original URL is preserved.")
+                        .setPositiveButton("Download") { _, _ ->
+                            startDownload(PendingDownload(item.url, WebSettings.getDefaultUserAgent(this), null, item.mime))
+                        }
+                        .setNeutralButton("Copy link") { _, _ ->
+                            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Video URL", item.url))
+                            toast("Original video link copied")
+                        }
+                        .setNegativeButton("Cancel", null).show()
+                }
+            }
+            .setNegativeButton("Close", null).show()
+    }
+
+    private fun analyzeCurrentPageWithExtractor() {
+        val pageUrl = web.url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        if (pageUrl == null) {
+            toast("Open a video webpage first")
+            return
+        }
+        status.text = "Analyzing video page..."
+        Thread {
+            try {
+                val info = YoutubeDL.getInstance().getInfo(pageUrl)
+                val title = info.title?.takeIf { it.isNotBlank() } ?: "Online video"
+                val request = YoutubeDLRequest(pageUrl)
+                request.addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+                request.addOption("--merge-output-format", "mp4")
+                request.addOption("--no-mtime")
+                runOnUiThread {
+                    status.text = "Video source found: $title"
+                    AlertDialog.Builder(this)
+                        .setTitle("Video source found")
+                        .setMessage("$title\n\nSource page analyzed successfully. The extractor will choose the best available compatible video/audio streams and merge them when required.")
+                        .setPositiveButton("Download video") { _, _ -> startExtractorDownload(request, title) }
+                        .setNeutralButton("Copy page link") { _, _ ->
+                            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Video page", pageUrl))
+                            toast("Page link copied")
+                        }
+                        .setNegativeButton("Cancel", null).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "Video extraction failed"
+                    AlertDialog.Builder(this).setTitle("Could not extract video")
+                        .setMessage(e.message ?: "This site may not be supported, or the video may require login, DRM, or an unavailable extractor.")
+                        .setPositiveButton("OK", null).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun startExtractorDownload(request: YoutubeDLRequest, title: String) {
+        val downloads = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "BasicBrowserWork")
+        if (!downloads.exists()) downloads.mkdirs()
+        request.addOption("-o", File(downloads, "%(title).120B.%(ext)s").absolutePath)
+        val processId = "main-browser-video-${System.currentTimeMillis()}"
+        status.text = "Starting video download..."
+        Thread {
+            try {
+                YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
+                    runOnUiThread {
+                        status.text = "Video: ${progress.toInt()}% • ${line.take(90)}"
+                    }
+                    kotlin.Unit
+                }
+                runOnUiThread {
+                    status.text = "Video download completed: $title"
+                    toast("Video download completed")
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "Video download failed"
+                    toast("Video download failed: ${e.message ?: "unknown error"}")
+                }
+            }
+        }.start()
+    }
+
+    private fun installGeneratedDownloadCapture(view: WebView) {
+        view.evaluateJavascript("""
+            (function(){
+              if (window.__slGeneratedDownloadCapture) return;
+              window.__slGeneratedDownloadCapture = true;
+              document.addEventListener('click', function(event) {
+                const a = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                if (!a) return;
+                const href = a.href || '';
+                const readable = (a.innerText || a.textContent || a.getAttribute('aria-label') || a.title || a.getAttribute('download') || '').trim();
+                if (readable && /^https?:/i.test(href)) {
+                  try { window.BasicBrowserWorkDownloadNameBridge.remember(href, readable); } catch(e) {}
+                }
+                if (!href.startsWith('blob:') && !href.startsWith('data:')) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                const name = a.getAttribute('download') || readable || 'download';
+                (async function(){
+                  try {
+                    const response = await fetch(href);
+                    const blob = await response.blob();
+                    window.BasicBrowserWorkDownloadBridge.beginGeneratedDownload(name, blob.type || 'application/octet-stream');
+                    const reader = blob.stream().getReader();
+                    while (true) {
+                      const part = await reader.read();
+                      if (part.done) break;
+                      const bytes = part.value;
+                      let binary = '';
+                      for (let i=0; i<bytes.length; i+=0x8000) {
+                        binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+0x8000, bytes.length)));
+                      }
+                      window.BasicBrowserWorkDownloadBridge.appendGeneratedDownload(btoa(binary));
+                    }
+                    window.BasicBrowserWorkDownloadBridge.finishGeneratedDownload();
+                  } catch (e) {
+                    window.BasicBrowserWorkDownloadBridge.failGeneratedDownload(String(e));
+                  }
+                })();
+              }, true);
+            })();
+        """.trimIndent(), null)
+    }
+
+    private fun createTab(url: String, switchTo: Boolean): WebView {
+        val view = WebView(this)
+        tabViews.add(view)
+        tabTitles.add("New tab")
+        configureWebView(view)
+        updateTabStrip()
+        if (switchTo || tabViews.size == 1) {
+            currentTab = tabViews.lastIndex
+            webContainer.removeAllViews()
+            webContainer.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
+            if (::address.isInitialized) address.setText(if (url == "about:blank") "" else url)
+        }
+        if (url != "about:blank") view.loadUrl(url)
+        updateTabStrip()
+        return view
+    }
+
+    private fun switchTab(index: Int) {
+        if (index !in tabViews.indices) return
+        currentTab = index
+        webContainer.removeAllViews()
+        webContainer.addView(web, FrameLayout.LayoutParams(MATCH, MATCH))
+        address.setText(web.url ?: "")
+        status.text = tabTitles[index]
+        updateNavigationButtons()
+        updateTabStrip()
+    }
+
+    private fun closeTab(index: Int) {
+        if (tabViews.size <= 1) {
+            web.loadUrl("https://www.google.com")
+            return
+        }
+        val closing = tabViews.removeAt(index)
+        tabTitles.removeAt(index)
+        closing.stopLoading()
+        closing.destroy()
+        if (index < currentTab) currentTab--
+        else if (index == currentTab) currentTab = minOf(index, tabViews.lastIndex)
+        switchTab(currentTab)
+    }
+
+    private fun updateTabStrip() {
+        if (!::tabStrip.isInitialized) return
+        tabStrip.removeAllViews()
+        tabViews.indices.forEach { index ->
+            val title = tabTitles.getOrNull(index)?.takeIf { it.isNotBlank() } ?: "New tab"
+            val chip = TextView(this).apply {
+                text = "${if (index == currentTab) "● " else ""}${title.take(22)}"
+                textSize = 13.5f
+                setTextColor(if (index == currentTab) Color.YELLOW else Color.rgb(255, 210, 70))
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setBackgroundColor(if (index == currentTab) Color.rgb(55, 55, 55) else Color.rgb(95, 95, 95))
+                setOnClickListener { switchTab(index) }
+                setOnLongClickListener {
+                    if (tabViews.size > 1) {
+                        closeTab(index)
+                        toast("Tab closed")
+                    } else {
+                        web.loadUrl("https://www.google.com")
+                        tabTitles[0] = "New tab"
+                        updateTabStrip()
+                    }
+                    true
+                }
+            }
+            tabStrip.addView(chip, LinearLayout.LayoutParams(dp(150), dp(38)).apply { setMargins(dp(2), 0, dp(2), 0) })
+        }
+        val add = TextView(this).apply {
+            text = "+"
+            textSize = 24f
+            gravity = Gravity.CENTER
+            setTextColor(Color.YELLOW)
+            setPadding(dp(12), 0, dp(12), 0)
+            setOnClickListener { createTab("https://www.google.com", true) }
+        }
+        tabStrip.addView(add, LinearLayout.LayoutParams(dp(44), dp(38)))
+        tabScroll.post { tabScroll.fullScroll(View.FOCUS_RIGHT) }
+    }
+
+    private fun updateNavigationButtons() {
+        // Back and Forward remain clickable; their actions safely check WebView history.
+    }
+
+    private fun makeButton(label: String, minWidthDp: Int, heightDp: Int, action: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            textSize = 15.5f
+            setTextColor(Color.YELLOW)
+            isAllCaps = false
+            minHeight = dp(heightDp)
+            minimumHeight = dp(heightDp)
+            minWidth = dp(minWidthDp)
+            gravity = Gravity.TOP or Gravity.LEFT
+            textSize = 15.5f
+            setTextColor(Color.YELLOW)
+            setPadding(9, 5, 3, 2)
+            setOnClickListener { action() }
+        }
+
+    private fun makeButton(label: String, minWidthDp: Int, action: () -> Unit): Button =
+        makeButton(label, minWidthDp, 54, action)
+
+    private fun navigate(input: String) {
+        val value = input.trim()
+        if (value.isEmpty()) return
+        val target = if (value.startsWith("http://") || value.startsWith("https://")) value
+        else if (value.contains(".") && !value.contains(" ")) "https://$value"
+        else "https://www.google.com/search?q=" + Uri.encode(value)
+        web.loadUrl(target)
+        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+            .hideSoftInputFromWindow(address.windowToken, 0)
+        address.clearFocus()
+    }
+
+    private fun showMainMenu() {
+        val items = arrayOf("New Tab", "Desktop Site", "Mobile Site", "Bookmarks", "History", "Downloads", "Settings", "Reload")
+        AlertDialog.Builder(this).setTitle("Basic Browser Work Menu").setItems(items) { _, which ->
+            when (which) {
+                0 -> createTab("https://www.google.com", switchTo = true)
+                1 -> setDesktopMode(true)
+                2 -> setDesktopMode(false)
+                3 -> showBookmarks()
+                4 -> showHistory()
+                5 -> showDownloadsInfo()
+                6 -> showSettings()
+                7 -> web.reload()
+            }
+        }.show()
+    }
+
+    private fun desktopUserAgent(): String =
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+    private fun showModeChooser() {
+        val modes = arrayOf("Mobile mode", "Desktop mode")
+        AlertDialog.Builder(this).setTitle("Choose website mode")
+            .setSingleChoiceItems(modes, if (desktopMode) 1 else 0) { dialog, which ->
+                dialog.dismiss()
+                setDesktopMode(which == 1)
+            }.setNegativeButton("Cancel", null).show()
+    }
+
+    private fun setDesktopMode(enabled: Boolean) {
+        desktopMode = enabled
+        prefs.edit().putBoolean("desktop_mode", enabled).apply()
+        tabViews.forEach { tab ->
+            tab.settings.userAgentString = if (enabled) desktopUserAgent() else WebSettings.getDefaultUserAgent(this)
+            tab.settings.useWideViewPort = true
+            tab.settings.loadWithOverviewMode = enabled
+        }
+        if (::modeButton.isInitialized) modeButton.text = if (enabled) "Desktop" else "Mobile"
+        web.reload()
+        status.text = if (enabled) "Desktop mode enabled" else "Mobile mode enabled"
+    }
+
+    private fun showSettings() {
+        val options = arrayOf("Zoom in", "Zoom out", "Reset zoom", "Desktop mode", "Mobile mode", "Search without images", "Disable JavaScript", "Clear browsing data")
+        AlertDialog.Builder(this).setTitle("Settings").setItems(options) { _, which ->
+            when (which) {
+                0 -> web.evaluateJavascript("document.body.style.zoom = (parseFloat(document.body.style.zoom || '1') + 0.1)", null)
+                1 -> web.evaluateJavascript("document.body.style.zoom = Math.max(0.1, parseFloat(document.body.style.zoom || '1') - 0.1)", null)
+                2 -> web.evaluateJavascript("document.body.style.zoom = '1'", null)
+                3 -> setDesktopMode(true)
+                4 -> setDesktopMode(false)
+                5 -> {
+                    val enabled = !prefs.getBoolean("images_enabled", true)
+                    prefs.edit().putBoolean("images_enabled", enabled).apply()
+                    tabViews.forEach { it.settings.loadsImagesAutomatically = enabled }
+                    toast(if (enabled) "Images enabled" else "Image-free browsing enabled")
+                    web.reload()
+                }
+                6 -> {
+                    val enabled = !prefs.getBoolean("javascript_enabled", true)
+                    prefs.edit().putBoolean("javascript_enabled", enabled).apply()
+                    tabViews.forEach { it.settings.javaScriptEnabled = enabled }
+                    toast(if (enabled) "JavaScript enabled" else "JavaScript disabled; some sites may not work")
+                    web.reload()
+                }
+                7 -> AlertDialog.Builder(this).setMessage("Clear cookies, cache and browsing history?")
+                    .setPositiveButton("Clear") { _, _ ->
+                        CookieManager.getInstance().removeAllCookies(null)
+                        web.clearCache(true); web.clearHistory()
+                        history.clear(); saveList("history", history)
+                        toast("Browsing data cleared")
+                    }.setNegativeButton("Cancel", null).show()
+            }
+        }.show()
+    }
+
+    private fun showTabs() {
+        val labels = tabViews.indices.map { i ->
+            "${if (i == currentTab) "✓ " else ""}${i + 1}. ${tabTitles[i].take(45)}"
+        }.toMutableList()
+        labels.add("＋ New tab")
+        AlertDialog.Builder(this).setTitle("Tabs (${tabViews.size})")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == tabViews.size) createTab("https://www.google.com", true)
+                else {
+                    val actions = arrayOf("Open this tab", "Close this tab")
+                    AlertDialog.Builder(this).setTitle(labels[which]).setItems(actions) { _, action ->
+                        if (action == 0) switchTab(which) else closeTab(which)
+                    }.show()
+                }
+            }.setNegativeButton("Done", null).show()
+    }
+
+    private fun showHistory() = showUrlList("History", history.asReversed(), false)
+    private fun showBookmarks() {
+        val choices = arrayOf("Open saved bookmarks", "Add current page to Home", "Open Home", "Manage saved bookmarks")

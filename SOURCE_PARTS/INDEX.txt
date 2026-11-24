@@ -1,0 +1,8 @@
+Segmented source reference
+
+The complete compilable file remains at browser-core/MainActivity.kt.
+
+browser-core/MainActivity.kt -> SOURCE_PARTS/browser-core/MainActivity.kt.part01.txt | lines 1-400 | 400 lines
+browser-core/MainActivity.kt -> SOURCE_PARTS/browser-core/MainActivity.kt.part02.txt | lines 401-800 | 400 lines
+browser-core/MainActivity.kt -> SOURCE_PARTS/browser-core/MainActivity.kt.part03.txt | lines 801-1200 | 400 lines
+browser-core/MainActivity.kt -> SOURCE_PARTS/browser-core/MainActivity.kt.part04.txt | lines 1201-1358 | 158 lines
