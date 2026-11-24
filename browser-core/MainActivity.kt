@@ -1,990 +1,1018 @@
-package com.easykeyboard.app
 
-import android.content.ClipData
-import android.content.ClipboardManager
+          package com.mainbrowser.app
+
+import android.app.Activity
+import android.app.AlertDialog
+import android.app.DownloadManager
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.webkit.MimeTypeMap
 import android.content.Context
+import android.content.Intent
+import android.content.ContentValues
+import android.provider.MediaStore
+import android.util.Base64
+import java.io.File
+import java.io.FileOutputStream
+import java.io.BufferedInputStream
 import android.graphics.Color
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.StateListDrawable
+import android.net.Uri
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.Environment
 import android.view.Gravity
-import android.view.ViewGroup
-import android.widget.FrameLayout
-import android.view.KeyEvent
-import android.view.MotionEvent
 import android.view.View
-import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputConnection
-import android.view.inputmethod.ExtractedTextRequest
-import android.text.InputType
+import android.view.ViewGroup
+import android.view.ScaleGestureDetector
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.view.inputmethod.InputMethodManager
+import android.webkit.CookieManager
+import android.webkit.DownloadListener
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.FrameLayout
+import android.widget.ProgressBar
 import android.widget.EditText
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import android.widget.SeekBar
-import android.app.AlertDialog
-import android.inputmethodservice.InputMethodService
+import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDLRequest
+import com.yausername.youtubedl_android.YoutubeDLException
+import org.json.JSONArray
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class EasyKeyboardService : InputMethodService() {
-    private var persian = true
-    private var caps = false
-    private var symbolLayout = false
-    private var numberRowVisible = false
-    private var selectMode = false
-    private var layoutMode = "standard"
-    private data class RangeDeletion(val originalStart: Int, val compactedStart: Int, val text: String)
-    private data class EditAction(
-        val removedText: String,
-        val insertedText: String,
-        val rangeDeletions: List<RangeDeletion> = emptyList()
-    )
-    private val undoStack = mutableListOf<EditAction>()
-    private val redoStack = mutableListOf<EditAction>()
-    private val defaultSuggestionWords = listOf(
-        "آیا", "از", "اگر", "اما", "آن", "آنها", "این", "اینجا" ,
-        "اینجاها", "برای", "با", "بدون", "به", "بر", "بلکه", "بین" ,
-        "تا", "توی", "چون", "چرا", "چطور", "چند", "چه", "چیز" ,
-        "چیزی", "چگونه", "در", "درباره", "دوباره", "را", "زیرا", "زیر" ,
-        "سپس", "سمت", "شاید", "فقط", "که", "کدام", "کم", "کمتر" ,
-        "کنار", "کی", "گویا", "مگر", "مثل", "من", "میان", "نه" ,
-        "نیز", "و", "یا", "یک", "هم", "همان", "همه", "هر" ,
-        "بالا", "بالایی", "پایین", "پایینی", "پشت", "جلو", "چپ", "راست" ,
-        "وسط", "کناری", "ردیف", "ستون", "صفحه", "صفحهٔ", "اصلی", "داخلی" ,
-        "گوشه", "گوشه‌ها", "فاصله", "فضا", "خالی", "جای", "مکان", "اندازه" ,
-        "عرض", "ارتفاع", "طول", "شکل", "مربع", "دایره", "پنجره", "کادر" ,
-        "بخش", "قسمت", "نوار", "فهرست", "لیست", "خانه", "چیدمان", "ترتیب" ,
-        "چندگانه", "یکسان", "هم‌اندازه", "ثابت", "متحرک", "کشویی", "پهن", "دکمه" ,
-        "کلید", "کلیدها", "فشردن", "زدن", "لمس", "گرفتن", "نگه‌داشتن", "رهاکردن" ,
-        "انتخاب", "انتخابی", "گزینه", "گزینه‌ها", "فعال", "غیرفعال", "روشن", "خاموش" ,
-        "باز", "بسته", "بازکردن", "بستن", "افزودن", "اضافه", "حذف", "پاک‌کردن" ,
-        "ذخیره", "ذخیره‌کردن", "ارسال", "فرستادن", "بازگشت", "برگشت", "لغو", "تأیید" ,
-        "تغییر", "جابجایی", "حرکت", "کشیدن", "رها", "فشار", "ورودی", "خروجی" ,
-        "نوشتن", "خواندن", "واردکردن", "نمایش", "پنهان", "پنهان‌کردن", "متن", "کلمه" ,
-        "واژه", "عبارت", "جمله", "حرف", "حروف", "الفبا", "زبان", "فارسی" ,
-        "انگلیسی", "عدد", "اعداد", "شماره", "نشانه", "علامت", "علائم", "نماد" ,
-        "نمادها", "اعراب", "املا", "نوشتار", "نوشته", "تایپ", "صفحه‌کلید", "پیشنهاد" ,
-        "پیشنهادی", "پیشنهادها", "ویرایش", "ویرایشگر", "جست‌وجو", "پیدا", "یافتن", "جایگزین" ,
-        "تکرار", "یکتا", "تکراری", "فاصله‌گذاری", "نقطه", "ویرگول", "پرسش", "پرسشی" ,
-        "پاسخ", "رنگ", "رنگی", "سفید", "سیاه", "زرد", "آبی", "قرمز" ,
-        "قهوه‌ای", "تیره", "کم‌رنگ", "پررنگ", "بزرگ", "بزرگ‌تر", "کوچک", "کوچک‌تر" ,
-        "ضخیم", "نازک", "شفاف", "پس‌زمینه", "حاشیه", "قاب", "گوشه‌گرد", "فونت" ,
-        "قلم", "اندازهٔ‌قلم", "متناسب", "پروژه", "برنامه", "نرم‌افزار", "فایل", "پوشه" ,
-        "مسیر", "مخزن", "نسخه", "نسخه‌ها", "کد", "کدنویسی", "ساخت", "ساختن" ,
-        "اصلاح", "درست‌کردن", "رفع", "خطا", "اشکال", "مشکل", "آزمایش", "بررسی" ,
-        "اجرا", "نصب", "بارگیری", "دریافت", "دانلود", "فشرده", "نام", "عنوان" ,
-        "توضیح", "محتوا", "کامل", "ناقص", "تغییرات", "افزوده", "حذف‌شده", "نگهداری" ,
-        "انتقال", "ذخیره‌سازی", "فلش", "جهت", "لغزش", "پیمایش", "اسکرول", "چرخش" ,
-        "توقف", "شروع", "پایان", "مرحله", "گام", "همزمان", "مستقل", "خودکار" ,
-        "دستی", "پیوسته", "موقت", "قابل", "تصویر", "عکس", "عکس‌ها", "فیلم" ,
-        "ویدیو", "ویدئویی", "صدا", "صوت", "بلندی", "روشنایی", "نور", "تاریکی" ,
-        "برش", "فریم", "نما", "نمایشگر", "پخش", "پخش‌کردن", "ضبط", "رسانه" ,
-        "زیرنویس", "پیش‌نمایش", "زمان", "مدت", "اسلاید", "داستان‌نما", "دستگاه", "گوشی" ,
-        "اندروید", "رایانه", "حافظه", "ذخیره‌گاه", "اتصال", "قطع", "وصل", "شبکه" ,
-        "اینترنت", "نشانی", "سرور", "کشور", "عمومی", "خصوصی", "پاسخ‌گویی", "سرعت" ,
-        "کارکرد", "عملکرد", "دسترسی", "اجازه", "امنیت", "درایو", "فضای‌ذخیره‌سازی", "باشد" ,
-        "باشند", "بشود", "بشنود", "بده", "بگذار", "بیار", "بیاور", "بماند" ,
-        "بمانند", "بکند", "کن", "کند", "کنند", "کرد", "کردن", "کرده" ,
-        "می‌شود", "می‌شوند", "می‌آید", "می‌آیند", "می‌خواهد", "می‌خواهم", "می‌توان", "می‌توانی" ,
-        "می‌توانند", "می‌دهم", "می‌گیرد", "می‌ماند", "می‌مانند", "می‌نویسد", "می‌سازد", "می‌زند" ,
-        "می‌چرخد", "می‌کشد", "می‌افتد", "نکن", "نکند", "نشود", "نباشد", "نباشند" ,
-        "ندارد", "نداشته", "نیست", "هست", "هستند", "است", "شد", "شده" ,
-        "شود", "شوند", "دارم", "دارد", "دارند", "داشت", "داد", "داده" ,
-        "گذاشت", "گذاشته", "گرفته", "ساخته", "بزرگ‌ترکن", "کوچک‌کن", "اضافه‌کن", "حذف‌کن" ,
-        "ثابت‌کن", "فعال‌کن", "غیرفعال‌کن"
-    )
+class MainActivity : Activity() {
+    private val tabViews = mutableListOf<WebView>()
+    private val tabTitles = mutableListOf<String>()
+    private var currentTab = 0
+    private val web: WebView get() = tabViews[currentTab]
+    private lateinit var webContainer: FrameLayout
+    private lateinit var pageProgress: ProgressBar
+    private lateinit var modeButton: Button
+    private var desktopMode = false
+    private data class PendingDownload(val url: String, val userAgent: String?, val disposition: String?, val mimeType: String?)
+    private var pendingDownload: PendingDownload? = null
+    private data class VideoCandidate(val url: String, val title: String, val mime: String, val kind: String)
+    private val videoCandidates = linkedMapOf<String, VideoCandidate>()
+    private val videoBlinkHandler = Handler(Looper.getMainLooper())
+    private var videoBlinking = false
+    private lateinit var videoLinksButton: Button
+    private var blobTempFile: File? = null
+    private var blobOutput: FileOutputStream? = null
+    private var blobDisplayName: String = "download.bin"
+    private var blobMimeType: String = "application/octet-stream"
+    private var blobBytes: Long = 0L
+    private var fileChooserCallback: android.webkit.ValueCallback<Array<Uri>>? = null
+    private lateinit var address: EditText
+    private lateinit var status: TextView
+    private lateinit var root: LinearLayout
+    private val prefs by lazy { getSharedPreferences("main_browser_state", MODE_PRIVATE) }
+    private val history = mutableListOf<String>()
+    private val bookmarks = mutableListOf<String>()
+    private var autoSelect = false
+    private var fullScreen = false
+    private var pageScale = 1.0f
+    private lateinit var headerBar: LinearLayout
+    private lateinit var tabStrip: LinearLayout
+    private lateinit var tabScroll: HorizontalScrollView
+    private val downloadLinkNames = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private lateinit var navBar: LinearLayout
+    private lateinit var bottomBar: LinearLayout
+    private val fileRequest = 701
 
-    private val handler = Handler(Looper.getMainLooper())
-    private val repeatTasks = mutableMapOf<View, Runnable>()
-    private var keyboardScale = 1.0f
-    private var buttonColor = Color.rgb(247, 249, 252)
-    private var buttonTextColor = Color.rgb(25, 35, 75)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        try {
+            YoutubeDL.getInstance().init(this)
+        } catch (e: Exception) {
+            android.util.Log.e("BasicBrowserWork", "Video extractor initialization failed", e)
+        }
+        history.addAll(readList("history"))
+        desktopMode = prefs.getBoolean("desktop_mode", false)
+        bookmarks.addAll(readList("bookmarks"))
+        buildInterface()
+        val last = prefs.getString("last_url", null)
+        // The first tab is created by buildInterface; load the last visited page.
+        if (!last.isNullOrBlank()) web.loadUrl(last)
+    }
 
-    override fun onCreateInputView(): View = buildKeyboard()
-
-    private fun buildKeyboard(): View {
-        val appearance = getSharedPreferences("appearance", Context.MODE_PRIVATE)
-        keyboardScale = appearance.getFloat("scale", 1.0f).coerceIn(0.75f, 1.25f)
-        buttonColor = appearance.getInt("button_color", Color.rgb(247, 249, 252))
-        buttonTextColor = appearance.getInt("text_color", Color.rgb(25, 35, 75))
-        layoutMode = appearance.getString("layout_mode", layoutMode) ?: "standard"
-        val outer = LinearLayout(this).apply {
+    private fun buildInterface() {
+        root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(2), dp(2), dp(2), dp(2))
-            setBackgroundColor(Color.rgb(190, 198, 208))
+            setBackgroundColor(Color.WHITE)
         }
 
-        // Personal suggestion strip: tap to insert, long-press to remove.
-        val suggestions = LinearLayout(this).apply {
+        tabStrip = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), dp(3), dp(4), dp(3))
         }
-        val suggestionPrefs = getSharedPreferences("suggestions", Context.MODE_PRIVATE)
-        val stored = suggestionPrefs.getStringSet("items", emptySet())?.toList().orEmpty()
-        val beforeCursor = currentInputConnection?.getTextBeforeCursor(80, 0)?.toString().orEmpty()
-        val currentToken = beforeCursor.substringAfterLast(' ').substringAfterLast('\n')
-        val suggestionPool = (defaultSuggestionWords + stored).distinct()
-        val saved = if (currentToken.isBlank()) suggestionPool
-            else suggestionPool.filter { it.startsWith(currentToken) && it != currentToken }
-        val suggestionScroll = HorizontalScrollView(this).apply {
+        tabScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
-            addView(suggestions)
+            fillViewport = false
+            addView(tabStrip, HorizontalScrollView.LayoutParams(WRAP, MATCH))
         }
-        saved.forEach { word ->
-            val suggestionButton = key(word, false) { typeText(word) }
-            suggestionButton.setOnLongClickListener {
-                removeSuggestion(word)
-                true
-            }
-            suggestionButton.minWidth = dp(52)
-            suggestionButton.maxWidth = dp(260)
-            suggestions.addView(suggestionButton, LinearLayout.LayoutParams(-2, dp(34)))
-        }
-        outer.addView(suggestionScroll, LinearLayout.LayoutParams(-1, dp(38)))
+        root.addView(tabScroll, LinearLayout.LayoutParams(MATCH, dp(44)))
 
-        // One active line-range field. Enter start-end and press Done to
-        // replace that range with the current clipboard text.
-        val rangeField = EditText(this).apply {
-            hint = "Lines: 5-12"
-            textSize = 11f
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(8, 1, 8, 0)
+        }
+        header.addView(TextView(this).apply {
+            text = "Basic Browser Work"
+            textSize = 19f
+            setTextColor(Color.BLACK)
             gravity = Gravity.CENTER
-            textDirection = View.TEXT_DIRECTION_LTR
+        }, LinearLayout.LayoutParams(WRAP, MATCH))
+
+        address = EditText(this).apply {
             setSingleLine(true)
-            isFocusable = true
-            isFocusableInTouchMode = true
-            isClickable = true
-            isEnabled = true
-            setSelectAllOnFocus(true)
-            showSoftInputOnFocus = true
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            inputType = InputType.TYPE_CLASS_TEXT
-            setPadding(dp(3), 0, dp(3), 0)
-            background = GradientDrawable().apply {
-                setColor(Color.WHITE)
-                cornerRadius = dp(5).toFloat()
-                setStroke(dp(1), Color.GRAY)
-            }
-            setOnEditorActionListener { _, actionId, event ->
-                val done = actionId == EditorInfo.IME_ACTION_DONE ||
-                    (event?.let { it.keyCode == KeyEvent.KEYCODE_ENTER && it.action == KeyEvent.ACTION_DOWN } == true)
-                if (done) {
-                    replaceLineRangeFromClipboard(text.toString())
-                    true
-                } else false
-            }
+            textSize = 15f
+            hint = "Enter address or search"
+            setTextColor(Color.BLACK)
+            setPadding(12, 4, 12, 4)
         }
+        header.addView(address, LinearLayout.LayoutParams(0, dp(50), 1f))
+        header.addView(makeButton("Go", 50) { navigate(address.text.toString()) })
+        header.addView(makeButton("Tabs", 62) { showTabs() })
+        header.addView(makeButton("Menu", 58) { showMainMenu() })
+        headerBar = header
+        root.addView(header)
 
-        // Additional action row above the main toolbar
-        val actionRowScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-        }
-        val actionRow = LinearLayout(this).apply {
+        navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, 0)
         }
-        actionRow.addView(rangeField, LinearLayout.LayoutParams(dp(104), dp(48)).apply {
-            setMargins(dp(2), 0, dp(2), 0)
-        })
-        listOf("Select", "Setup", "Save Suggestion").forEach { label ->
-            val action = when (label) {
-                "Save Suggestion" -> ({ saveSuggestion() })
-                "Select" -> ({ toggleSelectMode() })
-                else -> ({ showSetup() })
-            }
-            val buttonLabel = if (label == "Save Suggestion") "Save\nSuggestion" else label
-            val button = key(buttonLabel, true, doubleLabel = label != "Save Suggestion") { action() }
-            val screenWidthDp = resources.displayMetrics.widthPixels / resources.displayMetrics.density
-            // Match the width of a regular letter key in the third alphabet row.
-            val width = when (label) {
-                "Save Suggestion" -> dp((screenWidthDp / if (persian) 13.15f else 11.15f).toInt())
-                "Setup" -> dp(62)
-                else -> dp(76)
-            }
-            button.isEnabled = true
-            button.isClickable = true
-            button.isFocusable = true
-            if (label == "Setup") {
-                button.isSingleLine = true
-                button.textSize = 12f
-            }
-            if (label == "Save Suggestion") {
-                button.isSingleLine = false
-                button.textSize = 9f
-                button.setLineSpacing(0f, 0.9f)
-                button.setPadding(dp(2), 0, dp(2), 0)
-            }
-            if (label == "Select" && selectMode) button.setBackgroundColor(Color.rgb(255, 220, 35))
-            actionRow.addView(button, LinearLayout.LayoutParams(width, dp(48)))
-        }
-        actionRowScroll.addView(actionRow)
-        outer.addView(actionRowScroll, LinearLayout.LayoutParams(-1, dp(48)))
-
-        // Second control row is fixed-width; it no longer scrolls horizontally.
-        val toolbar = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            weightSum = 11f
-        }
-        val toolbarKeys = listOf("«", "»", "−", "_", "Undo", "Redo", "Past", "Copy", "Emoji", "File", "Answer")
-        toolbarKeys.forEach { label ->
-            val b = key(label, true, doubleLabel = false) {
-                when (label) {
-                    "Undo" -> undo()
-                    "Redo" -> redo()
-                    "Past" -> pasteFromClipboard()
-                    "Copy" -> copySelection()
-                    "Save Suggestion" -> saveSuggestion()
-                    "Export List" -> exportSuggestions()
-                    "Emoji" -> showEmojiPicker()
-                    "File" -> {
-                        val intent = android.content.Intent(this, FilePickerActivity::class.java)
-                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        startActivity(intent)
-                    }
-                    "Answer" -> answerCurrentEditor()
-                    "−" -> typeText("−")
-                    "_" -> typeText("_")
-                    else -> typeText(label)
-                }
-            }
-            if (label == "−") b.setOnLongClickListener {
-                showChoices(b, listOf("−", "–", "—", "ـ")); true
-            }
-            if (label == "_") b.setOnLongClickListener {
-                showChoices(b, listOf("_", "=")); true
-            }
-            b.textSize = if (label.length > 5) 9f else 11f
-            toolbar.addView(b, LinearLayout.LayoutParams(0, -1, 1f))
-        }
-        outer.addView(toolbar, LinearLayout.LayoutParams(-1, dp(48)))
-
-        if (layoutMode == "computer") {
-            val pcRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            listOf(
-                "Tab" to KeyEvent.KEYCODE_TAB,
-                "Esc" to KeyEvent.KEYCODE_ESCAPE,
-                "Ctrl" to KeyEvent.KEYCODE_CTRL_LEFT,
-                "Alt" to KeyEvent.KEYCODE_ALT_LEFT,
-                "Home" to KeyEvent.KEYCODE_MOVE_HOME,
-                "End" to KeyEvent.KEYCODE_MOVE_END
-            ).forEach { (label, code) ->
-                pcRow.addView(key(label, true) { sendKeyCode(code) },
-                    LinearLayout.LayoutParams(0, dp(40), 1f))
-            }
-            outer.addView(pcRow, LinearLayout.LayoutParams(-1, dp(40)))
-            numberRowVisible = true
-        } else if (layoutMode == "mouse") {
-            val mouseRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            listOf(
-                "↑" to KeyEvent.KEYCODE_DPAD_UP,
-                "←" to KeyEvent.KEYCODE_DPAD_LEFT,
-                "کلیک" to KeyEvent.KEYCODE_DPAD_CENTER,
-                "راست" to KeyEvent.KEYCODE_MENU,
-                "→" to KeyEvent.KEYCODE_DPAD_RIGHT,
-                "↓" to KeyEvent.KEYCODE_DPAD_DOWN
-            ).forEach { (label, code) ->
-                val control = key(label, true) { sendKeyCode(code) }
-                if (code in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_LEFT,
-                        KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN)) {
-                    enableRepeat(control) { sendKeyCode(code) }
-                }
-                mouseRow.addView(control, LinearLayout.LayoutParams(0, dp(40), 1f))
-            }
-            outer.addView(mouseRow, LinearLayout.LayoutParams(-1, dp(40)))
-        }
-
-        if (numberRowVisible) {
-            val numberRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val digits = if (persian) listOf("۱","۲","۳","۴","۵","۶","۷","۸","۹","۰")
-                         else listOf("1","2","3","4","5","6","7","8","9","0")
-            val cornerSymbols = listOf("#", "@", ":", "+", "(", ")", "*", "✓", "~", "•")
-            val symbolChoices = listOf(
-                listOf("#", "{", "}"), listOf("@", "[", "]"),
-                listOf(":", "÷", "×"), listOf("+", "|", "%"),
-                listOf("(", ")"), listOf("*", "="),
-                listOf("✓", "~"), listOf("~", "•"),
-                listOf("•", "="), listOf("=", "#")
-            )
-            digits.forEachIndexed { index, digit ->
-                val keyView = keyWithCornerSymbol(
-                    digit,
-                    cornerSymbols[index],
-                    longAction = { anchor -> showChoices(anchor, symbolChoices[index]) }
-                ) { typeText(digit) }
-                numberRow.addView(keyView, LinearLayout.LayoutParams(0, dp(44), 1f))
-            }
-            outer.addView(numberRow, LinearLayout.LayoutParams(-1, dp(44)))
-        }
-
-        val normalRows = if (persian) listOf(
-            listOf("ض", "ص", "ث", "ق", "ف", "غ", "ع", "ه", "خ", "ح", "ج"),
-            listOf("ش", "س", "ی", "ب", "ل", "ا", "ت", "ن", "م", "ک", "گ"),
-            listOf("ظ", "ط", "ژ", "ز", "ر", "ذ", "د", "پ", "و", "چ")
-        ) else listOf(
-            listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"),
-            listOf("A", "S", "D", "F", "G", "H", "J", "K", "L"),
-            listOf("Z", "X", "C", "V", "B", "N", "M")
+        val navItems = listOf(
+            "Back" to { if (web.canGoBack()) web.goBack() else toast("No previous page") },
+            "Forward" to { if (web.canGoForward()) web.goForward() else toast("No next page") },
+            "Past" to { pasteFromClipboard() },
+            "Full Screen" to { toggleFullScreen() },
+            "History" to { showHistory() },
+            "Bookmarks" to { showBookmarks() },
+            "Downloads" to { showDownloadsInfo() },
+            "Home" to { showHome() },
+            "Mode" to { showModeChooser() }
         )
-        // Holding Shift opens the complete former Symbols collection here.
-        val alternateSymbols = listOf(
-            "!", "@", "#", "$", "%", "^", "&", "*", "(", ")",
-            "-", "_", "+", "=", "[", "]", "{", "}", ";", "'",
-            ":", "\\\"", "/", "?", "\\\\", "|", "<", ">", "×", "✓",
-            "©", "®", "™", "§", "¶", "•", "…", "‰", "°", "℃",
-            "℉", "№", "₽", "$", "€", "£", "¥", "¢", "₹", "₩",
-            "÷", "≠", "≈", "≡", "≤", "≥", "±", "√", "∞", "∑",
-            "∏", "∫", "π", "←", "→", "↑", "↓", "↔", "↕", "○",
-            "●", "□", "■"
-        )
-        val alternateRows = alternateSymbols.chunked(10)
-        val rows = if (symbolLayout) alternateRows else normalRows
-
-        rows.forEachIndexed { index, chars ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            if (index == 2) {
-                val shift = key(if (symbolLayout) "ABC" else "Shift", true) {}
-                var holdTask: Runnable? = null
-                var longPressed = false
-                shift.setOnTouchListener { _, event ->
-                    when (event.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            shift.isPressed = true
-                            longPressed = false
-                            val task = Runnable { longPressed = true }
-                            holdTask = task
-                            handler.postDelayed(task, 500)
-                            true
-                        }
-                        MotionEvent.ACTION_UP -> {
-                            shift.isPressed = false
-                            holdTask?.let { handler.removeCallbacks(it) }
-                            if (longPressed) {
-                                // Holding Shift opens the alternate-symbol keyboard.
-                                symbolLayout = true
-                                caps = false
-                            } else if (symbolLayout) {
-                                // A short tap on ABC returns to the normal letters.
-                                symbolLayout = false
-                                caps = false
-                            } else {
-                                // A short tap enables one-shot uppercase.
-                                caps = true
-                            }
-                            setInputView(buildKeyboard())
-                            true
-                        }
-                        MotionEvent.ACTION_CANCEL -> {
-                            shift.isPressed = false
-                            holdTask?.let { handler.removeCallbacks(it) }
-                            true
-                        }
-                        else -> true
-                    }
-                }
-                row.addView(shift, LinearLayout.LayoutParams(0, -1, 1.35f))
-            }
-            chars.forEach { ch ->
-                val shown = if (!symbolLayout && !persian && caps) ch.uppercase()
-                            else if (!symbolLayout && !persian) ch.lowercase() else ch
-                val letterKey = key(shown, false) {
-                    typeText(shown)
-                    if (symbolLayout) {
-                        symbolLayout = false
-                        setInputView(buildKeyboard())
-                    } else if (caps) {
-                        // Uppercase applies to exactly one typed letter.
-                        caps = false
-                        setInputView(buildKeyboard())
-                    }
-                }
-                val variants = if (!symbolLayout && persian) when (ch) {
-                    "ا" -> listOf("آ", "أ", "إ")
-                    "و" -> listOf("ؤ")
-                    "ی" -> listOf("ئ", "ي", "ى")
-                    else -> emptyList()
-                } else emptyList()
-                if (variants.isNotEmpty()) {
-                    letterKey.isLongClickable = true
-                    letterKey.setOnLongClickListener {
-                        showChoices(letterKey, variants)
-                        true
-                    }
-                }
-                row.addView(letterKey, LinearLayout.LayoutParams(0, -1, 1f))
-                if (!symbolLayout && persian && index == 0 && ch == "ج") {
-                    val diacritics = key("اعراب", true) {
-                        showGrid("اعراب", listOf("َ","ِ","ُ","ً","ٍ","ٌ","ْ","ّ","ٰ","ٓ","ٔ","ٕ"), 6)
-                    }
-                    diacritics.textSize = 9f
-                    row.addView(diacritics, LinearLayout.LayoutParams(0, -1, 1.15f))
-                }
-                if (!symbolLayout && !persian && index == 2 && ch == "M") {
-                    row.addView(key(",", true) { typeText(",") },
-                        LinearLayout.LayoutParams(0, -1, 1f))
-                }
-            }
-
-       if (index == 1) {
-                val back = key("← Backspace", true) { deleteOne() }
-                back.contentDescription = "Backspace"
-                enableRepeat(back) { deleteOne() }
-                row.addView(back, LinearLayout.LayoutParams(0, -1, 1.8f))
-            }
-            if (index == 2) row.addView(key("Enter", true) { answerCurrentEditor() },
-                LinearLayout.LayoutParams(0, -1, 1.8f))
-            outer.addView(row, LinearLayout.LayoutParams(-1, dp(61)))
+        navItems.forEach { (label, action) ->
+            val b = makeButton(label, 1, 48, action)
+            b.textSize = 12.5f
+            b.setTextColor(Color.YELLOW)
+            navBar.addView(b, LinearLayout.LayoutParams(0, dp(48), 1f))
         }
+        modeButton = navBar.getChildAt(8) as Button
+        modeButton.text = if (desktopMode) "Desktop" else "Mobile"
+        root.addView(navBar)
+
+        pageProgress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max = 100
+            progress = 0
+            visibility = View.GONE
+            isIndeterminate = false
+            progressTintList = android.content.res.ColorStateList.valueOf(Color.rgb(25, 118, 210))
+        }
+        root.addView(pageProgress, LinearLayout.LayoutParams(MATCH, dp(4)))
+        webContainer = FrameLayout(this)
+        root.addView(webContainer, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        createTab("https://www.google.com", switchTo = true)
+        updateTabStrip()
+
+        status = TextView(this).apply {
+            text = "Ready"
+            textSize = 11f
+            setTextColor(Color.DKGRAY)
+            setPadding(8, 2, 8, 2)
+        }
+        root.addView(status)
 
         val bottom = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_HORIZONTAL
-            layoutDirection = View.LAYOUT_DIRECTION_LTR
-            weightSum = 12.58f
+            gravity = Gravity.CENTER
+            setPadding(5, 5, 5, 7)
         }
-        // Weighted widths fill the entire bottom row with no blank gaps or horizontal scrolling.
-        fun addBottom(label: String, action: () -> Unit, corner: String? = null) {
-            val buttonView = if (corner == null) key(label, true, action)
-                             else keyWithCornerSymbol(label, corner, action = action)
-            bottom.addView(buttonView, LinearLayout.LayoutParams(0, -1, 1f))
-        }
-        addBottom("123", {
-            numberRowVisible = !numberRowVisible
-            setInputView(buildKeyboard())
-        })
-        addBottom(if (persian) "EN" else "FA", {
-            persian = !persian
-            caps = false
-            symbolLayout = false
-            setInputView(buildKeyboard())
-        })
-        // Keep the four navigation arrows directly between language and Space.
-        listOf(
-            Triple("←", KeyEvent.KEYCODE_DPAD_LEFT, "|"),
-            Triple("→", KeyEvent.KEYCODE_DPAD_RIGHT, "~"),
-            Triple("↑", KeyEvent.KEYCODE_DPAD_UP, "#"),
-            Triple("↓", KeyEvent.KEYCODE_DPAD_DOWN, null)
-        ).forEach { (label, code, corner) ->
-            val arrow = if (corner == null) key(label, true) { sendArrow(code, selectMode) }
-                        else keyWithCornerSymbol(label, corner) { sendArrow(code, selectMode) }
-            enableRepeat(arrow) { sendArrow(code, selectMode) }
-            bottom.addView(arrow, LinearLayout.LayoutParams(0, -1, 1f))
-        }
-        val space = key("Space", true) { typeText(" ") }
-        bottom.addView(space, LinearLayout.LayoutParams(0, -1, 2.4f))
-        addBottom(".", { typeText(".") }, ";")
-        val circle = key("○", true) { typeText("○") }
-        bottom.addView(circle, LinearLayout.LayoutParams(0, -1, 1.18f))
-        addBottom("؟", { typeText("؟") }, "✓")
-        addBottom("،", { typeText("،") })
-
-        outer.addView(bottom, LinearLayout.LayoutParams(-1, (dp(58) * keyboardScale).toInt()))
-        return outer
+        bottom.addView(makeButton("Auto Select", 1, 64) { toggleAutoSelect() }, LinearLayout.LayoutParams(0, dp(64), 0.95f).apply { setMargins(2, 0, 2, 0) })
+        bottom.addView(makeButton("Save", 1, 64) { savePageText() }, LinearLayout.LayoutParams(0, dp(64), 0.9f).apply { setMargins(2, 0, 2, 0) })
+        videoLinksButton = makeButton("Video Links", 1, 64) { showVideoLinks() }
+        bottom.addView(videoLinksButton, LinearLayout.LayoutParams(0, dp(64), 1.1f).apply { setMargins(2, 0, 2, 0) })
+        bottom.addView(makeButton("File", 1, 64) { chooseFiles() }, LinearLayout.LayoutParams(0, dp(64), 0.9f).apply { setMargins(2, 0, 2, 0) })
+        bottom.addView(makeButton("Answer", 1, 64) { answerDialog() }, LinearLayout.LayoutParams(0, dp(64), 1.0f).apply { setMargins(2, 0, 2, 0) })
+        bottomBar = bottom
+        root.addView(bottom)
+        setContentView(root)
     }
 
-    private fun key(label: String, dark: Boolean, action: () -> Unit): Button =
-        key(label, dark, true, action)
+    private fun configureWebView(view: WebView) {
+        view.settings.apply {
+            javaScriptEnabled = prefs.getBoolean("javascript_enabled", true)
+            domStorageEnabled = true
+            databaseEnabled = true
+            loadsImagesAutomatically = prefs.getBoolean("images_enabled", true)
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(true)
+            useWideViewPort = true
+            loadWithOverviewMode = true
+            builtInZoomControls = true
+            displayZoomControls = false
+            setSupportZoom(true)
+            textZoom = 100
+            cacheMode = WebSettings.LOAD_DEFAULT
+            blockNetworkLoads = false
+            if (Build.VERSION.SDK_INT >= 23) offscreenPreRaster = true
+            userAgentString = if (desktopMode) desktopUserAgent() else WebSettings.getDefaultUserAgent(this@MainActivity)
+        }
+        view.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        CookieManager.getInstance().setAcceptCookie(true)
+        CookieManager.getInstance().setAcceptThirdPartyCookies(view, true)
+        view.addJavascriptInterface(PageBridge(), "BasicBrowserWorkBridge")
+        view.addJavascriptInterface(DownloadBridge(), "BasicBrowserWorkDownloadBridge")
+        view.addJavascriptInterface(DownloadNameBridge(), "BasicBrowserWorkDownloadNameBridge")
+        view.addJavascriptInterface(VideoScanBridge(), "BasicBrowserWorkVideoBridge")
+        view.webViewClient = object : WebViewClient() {
+            override fun shouldOverrideUrlLoading(v: WebView?, request: android.webkit.WebResourceRequest?): Boolean {
+                if (request?.isForMainFrame != true) return false
+                val target = request.url.toString()
+                val path = Uri.parse(target).lastPathSegment?.lowercase(Locale.ROOT).orEmpty()
+                val downloadable = listOf(".pdf", ".zip", ".rar", ".7z", ".apk", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".csv", ".txt", ".mp3", ".mp4", ".m4a", ".wav")
+                if (downloadable.any { path.endsWith(it) }) {
+                    startDownload(PendingDownload(target, WebSettings.getDefaultUserAgent(this@MainActivity), null, null))
+                    return true
+                }
+                return false
+            }
 
-    private fun key(
-        label: String,
-        dark: Boolean,
-        doubleLabel: Boolean,
-        action: () -> Unit
-    ): Button = Button(this).apply {
-            text = label
-             isAllCaps = false
-            val baseTextSize = when {
-                label.length == 1 && (label[0].isLetterOrDigit() ||
-                    label[0] in "!@#$%^&*()-_=+[]{};:'\"/\\?|<>×✓©®™§¶•…‰°℃℉№₽€£¥¢₹₩÷≠≈≡≤≥±√∞∑∏∫π○●□■،؟؛٫٬") -> 45f
-                label.length > 9 -> 10f
-                label.length > 5 -> 12f
-                else -> 15f
+            override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                super.onPageStarted(v, url, favicon)
+                if (tabViews.indexOf(view) == currentTab) {
+                    pageProgress.progress = 0
+                    pageProgress.visibility = View.VISIBLE
+                    status.text = "Loading page…"
+                }
             }
-            textSize = when (label) {
-                "← Backspace", "Backspace" -> 9f
-                "123" -> 13f
-                else -> if (doubleLabel && label.length > 1) baseTextSize * 2f else baseTextSize
+            override fun onPageFinished(v: WebView?, url: String?) {
+                super.onPageFinished(v, url)
+                val index = tabViews.indexOf(view)
+                if (index >= 0 && !url.isNullOrBlank()) {
+                    tabTitles[index] = view.title?.takeIf { it.isNotBlank() } ?: url
+                    updateTabStrip()
+                    if (index == currentTab) {
+                        address.setText(url)
+                        prefs.edit().putString("last_url", url).apply()
+                        status.text = view.title ?: url
+                        pageProgress.progress = 100
+                        pageProgress.visibility = View.GONE
+                        if (autoSelect) injectAutoSelect()
+                    }
+                    addHistory(url)
+                    installGeneratedDownloadCapture(view)
+                    // One delayed DOM scan catches initially lazy-loaded media. Further
+                    // media requests are detected by shouldInterceptRequest, avoiding
+                    // repeated whole-page scans that used to slow browsing down.
+                    view.postDelayed({
+                        if (!isFinishing && !isDestroyed && tabViews.contains(view) && view.url == url) scanPageForVideos(view)
+                    }, 1500)
+                }
             }
-            if (label == "← Backspace" || label == "Backspace" || label == "123") isSingleLine = true
-            setTextColor(buttonTextColor)
-            includeFontPadding = false
-            typeface = Typeface.DEFAULT_BOLD
+            override fun shouldInterceptRequest(v: WebView?, request: android.webkit.WebResourceRequest?): android.webkit.WebResourceResponse? {
+                val u = request?.url?.toString() ?: return null
+                val lower = u.lowercase(Locale.ROOT)
+                val path = Uri.parse(u).path?.lowercase(Locale.ROOT).orEmpty()
+                if (isVideoResource(lower, path)) addVideoCandidate(u, "Video stream", request?.requestHeaders?.get("Accept") ?: "", videoKind(u))
+                return super.shouldInterceptRequest(v, request)
+            }
+        }
+        view.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(v: WebView?, newProgress: Int) {
+                if (tabViews.indexOf(view) == currentTab) {
+                    pageProgress.progress = newProgress.coerceIn(0, 100)
+                    pageProgress.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
+                    if (newProgress < 100) status.text = "Loading page… $newProgress%"
+                }
+            }
+            override fun onShowFileChooser(
+                webView: WebView?,
+                callback: android.webkit.ValueCallback<Array<Uri>>?,
+                params: FileChooserParams?
+            ): Boolean {
+                fileChooserCallback?.onReceiveValue(null)
+                fileChooserCallback = callback
+                return try {
+                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "*/*"
+                        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                    }
+                    startActivityForResult(intent, fileRequest)
+                    true
+                } catch (_: Exception) {
+                    fileChooserCallback?.onReceiveValue(null)
+                    fileChooserCallback = null
+                    toast("Unable to open device files")
+                    false
+                }
+            }
+
+            override fun onCreateWindow(v: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean {
+                val newView = createTab("about:blank", switchTo = true)
+                val transport = resultMsg?.obj as? WebView.WebViewTransport ?: return false
+                transport.webView = newView
+                resultMsg?.sendToTarget()
+                return true
+            }
+
+            override fun onReceivedTitle(v: WebView?, title: String?) {
+                val index = tabViews.indexOf(view)
+                if (index >= 0 && !title.isNullOrBlank()) {
+                    tabTitles[index] = title
+                    updateTabStrip()
+                }
+            }
+        }
+        val pinch = ScaleGestureDetector(this, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                pageScale = (pageScale * detector.scaleFactor).coerceIn(0.6f, 1.0f)
+                view.evaluateJavascript("document.documentElement.style.zoom='${pageScale}'", null)
+                return true
+            }
+        })
+        view.setOnTouchListener { _, event -> pinch.onTouchEvent(event); false }
+        view.setDownloadListener(DownloadListener { url, userAgent, contentDisposition, mimeType, _ ->
+            val parsed = Uri.parse(url)
+            when (parsed.scheme?.lowercase(Locale.ROOT)) {
+                "blob", "data" -> downloadPageGeneratedUrl(view, url, contentDisposition, mimeType)
+                "http", "https" -> startDownload(PendingDownload(url, userAgent, contentDisposition, mimeType))
+                "content", "file" -> copyLocalUriToDownloads(parsed, contentDisposition, mimeType)
+                else -> toast("Unsupported download link type")
+            }
+        })
+    }
+
+    private fun isVideoResource(url: String, path: String): Boolean {
+        return listOf(".mp4", ".m4v", ".webm", ".mov", ".mkv", ".3gp", ".ts", ".m3u8", ".mpd", ".ism/manifest")
+            .any { path.contains(it) || url.contains(it) }
+    }
+
+    private fun videoKind(url: String): String {
+        val p = Uri.parse(url).path?.lowercase(Locale.ROOT).orEmpty()
+        return when {
+            p.contains(".m3u8") -> "HLS playlist"
+            p.contains(".mpd") -> "MPEG-DASH manifest"
+            p.contains(".webm") -> "WebM"
+            p.contains(".mkv") -> "Matroska"
+            p.contains(".mov") -> "QuickTime"
+            p.contains(".ts") -> "MPEG-TS segment"
+            else -> "Video"
+        }
+    }
+
+    private fun shortVideoLabel(raw: String): String {
+        val u = Uri.parse(raw)
+        val host = u.host ?: "Video"
+        val file = u.lastPathSegment?.substringBefore('?')?.takeIf { it.isNotBlank() }
+        return (file ?: host).let { if (it.length > 34) it.take(31) + "…" else it }
+    }
+
+    private fun addVideoCandidate(url: String, title: String, mime: String, kind: String) {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return
+        if (url.length > 12000 || url.contains("googlevideo.com/videoplayback") && url.contains("expire=") ) {
+            // Signed URLs are retained exactly as received; only their visible label is shortened.
+        }
+        runOnUiThread {
+            if (!videoCandidates.containsKey(url)) {
+                videoCandidates[url] = VideoCandidate(url, shortVideoLabel(url), mime, kind)
+                videoLinksButton.text = "Video Links •"
+                startVideoBlink()
+            }
+        }
+    }
+                           
+
+    private fun startVideoBlink() {
+        if (videoBlinking) return
+        videoBlinking = true
+        val task = object : Runnable {
+            var lit = false
+            override fun run() {
+                if (!videoBlinking || videoCandidates.isEmpty()) {
+                    videoLinksButton.alpha = 1f
+                    videoBlinking = false
+                    return
+                }
+                lit = !lit
+                videoLinksButton.alpha = if (lit) 1f else 0.35f
+                videoBlinkHandler.postDelayed(this, 550)
+            }
+        }
+        videoBlinkHandler.post(task)
+    }
+
+    private fun scanPageForVideos(view: WebView) {
+        view.evaluateJavascript("""
+          (function(){
+            const out = new Map();
+            const add = (u,t,m) => { try { if(u && /^https?:/i.test(u)) out.set(u,{url:u,title:t||'',mime:m||''}); } catch(e){} };
+            document.querySelectorAll('video,audio').forEach(v=>{
+              add(v.currentSrc || v.src, v.getAttribute('title') || document.title, v.getAttribute('type') || '');
+              v.querySelectorAll('source').forEach(s=>add(s.src, document.title, s.type));
+            });
+            document.querySelectorAll('source[src]').forEach(s=>add(s.src,document.title,s.type));
+            try { performance.getEntriesByType('resource').forEach(e=>{
+              const u=e.name||'';
+              if(/\\.(mp4|m4v|webm|mov|mkv|3gp|m3u8|mpd|ts)(\\?|$)/i.test(u)) add(u,document.title,'');
+            }); } catch(e){}
+            out.forEach(x=>window.BasicBrowserWorkVideoBridge.found(x.url,x.title,x.mime));
+            return out.size;
+          })();
+        """.trimIndent(), null)
+    }
+
+    inner class VideoScanBridge {
+        @JavascriptInterface fun found(url: String, title: String, mime: String) {
+            addVideoCandidate(url, title, mime, videoKind(url))
+        }
+    }
+
+    private fun showVideoLinks() {
+        videoBlinking = false
+        videoBlinkHandler.removeCallbacksAndMessages(null)
+        videoLinksButton.alpha = 1f
+        videoLinksButton.text = "Video Links"
+        val items = videoCandidates.values.toList()
+        val labels = items.map { "${it.title}  •  ${it.kind}" }.toMutableList()
+        labels.add(0, "Extract links from this page (yt-dlp)")
+        AlertDialog.Builder(this).setTitle("Video Links (${items.size})")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    analyzeCurrentPageWithExtractor()
+                } else {
+                    val item = items[which - 1]
+                    AlertDialog.Builder(this).setTitle("Ready to download?")
+                        .setMessage("${item.title}\n${item.kind}\n\nThe original URL is preserved.")
+                        .setPositiveButton("Download") { _, _ ->
+                            startDownload(PendingDownload(item.url, WebSettings.getDefaultUserAgent(this), null, item.mime))
+                        }
+                        .setNeutralButton("Copy link") { _, _ ->
+                            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Video URL", item.url))
+                            toast("Original video link copied")
+                        }
+                        .setNegativeButton("Cancel", null).show()
+                }
+            }
+            .setNegativeButton("Close", null).show()
+    }
+
+    private fun analyzeCurrentPageWithExtractor() {
+        val pageUrl = web.url?.takeIf { it.startsWith("http://") || it.startsWith("https://") }
+        if (pageUrl == null) {
+            toast("Open a video webpage first")
+            return
+        }
+        status.text = "Analyzing video page..."
+        Thread {
+            try {
+                val info = YoutubeDL.getInstance().getInfo(pageUrl)
+                val title = info.title?.takeIf { it.isNotBlank() } ?: "Online video"
+                val request = YoutubeDLRequest(pageUrl)
+                request.addOption("-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+                request.addOption("--merge-output-format", "mp4")
+                request.addOption("--no-mtime")
+                runOnUiThread {
+                    status.text = "Video source found: $title"
+                    AlertDialog.Builder(this)
+                        .setTitle("Video source found")
+                        .setMessage("$title\n\nSource page analyzed successfully. The extractor will choose the best available compatible video/audio streams and merge them when required.")
+                        .setPositiveButton("Download video") { _, _ -> startExtractorDownload(request, title) }
+                        .setNeutralButton("Copy page link") { _, _ ->
+                            val cm = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+                            cm.setPrimaryClip(ClipData.newPlainText("Video page", pageUrl))
+                            toast("Page link copied")
+                        }
+                        .setNegativeButton("Cancel", null).show()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "Video extraction failed"
+                    AlertDialog.Builder(this).setTitle("Could not extract video")
+                        .setMessage(e.message ?: "This site may not be supported, or the video may require login, DRM, or an unavailable extractor.")
+                        .setPositiveButton("OK", null).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun startExtractorDownload(request: YoutubeDLRequest, title: String) {
+        val downloads = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "BasicBrowserWork")
+        if (!downloads.exists()) downloads.mkdirs()
+        request.addOption("-o", File(downloads, "%(title).120B.%(ext)s").absolutePath)
+        val processId = "main-browser-video-${System.currentTimeMillis()}"
+        status.text = "Starting video download..."
+        Thread {
+            try {
+                YoutubeDL.getInstance().execute(request, processId) { progress, eta, line ->
+                    runOnUiThread {
+                        status.text = "Video: ${progress.toInt()}% • ${line.take(90)}"
+                    }
+                    kotlin.Unit
+                }
+                runOnUiThread {
+                    status.text = "Video download completed: $title"
+                    toast("Video download completed")
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    status.text = "Video download failed"
+                    toast("Video download failed: ${e.message ?: "unknown error"}")
+                }
+            }
+        }.start()
+    }
+
+    private fun installGeneratedDownloadCapture(view: WebView) {
+        view.evaluateJavascript("""
+            (function(){
+              if (window.__slGeneratedDownloadCapture) return;
+              window.__slGeneratedDownloadCapture = true;
+              document.addEventListener('click', function(event) {
+                const a = event.target && event.target.closest ? event.target.closest('a[href]') : null;
+                if (!a) return;
+                const href = a.href || '';
+                const readable = (a.innerText || a.textContent || a.getAttribute('aria-label') || a.title || a.getAttribute('download') || '').trim();
+                if (readable && /^https?:/i.test(href)) {
+                  try { window.BasicBrowserWorkDownloadNameBridge.remember(href, readable); } catch(e) {}
+                }
+                if (!href.startsWith('blob:') && !href.startsWith('data:')) return;
+                event.preventDefault();
+                event.stopImmediatePropagation();
+                const name = a.getAttribute('download') || readable || 'download';
+                (async function(){
+                  try {
+                    const response = await fetch(href);
+                    const blob = await response.blob();
+                    window.BasicBrowserWorkDownloadBridge.beginGeneratedDownload(name, blob.type || 'application/octet-stream');
+                    const reader = blob.stream().getReader();
+                    while (true) {
+                      const part = await reader.read();
+                      if (part.done) break;
+                      const bytes = part.value;
+                      let binary = '';
+                      for (let i=0; i<bytes.length; i+=0x8000) {
+                        binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+0x8000, bytes.length)));
+                      }
+                      window.BasicBrowserWorkDownloadBridge.appendGeneratedDownload(btoa(binary));
+                    }
+                    window.BasicBrowserWorkDownloadBridge.finishGeneratedDownload();
+                  } catch (e) {
+                    window.BasicBrowserWorkDownloadBridge.failGeneratedDownload(String(e));
+                  }
+                })();
+              }, true);
+            })();
+        """.trimIndent(), null)
+    }
+
+    private fun createTab(url: String, switchTo: Boolean): WebView {
+        val view = WebView(this)
+        tabViews.add(view)
+        tabTitles.add("New tab")
+        configureWebView(view)
+        updateTabStrip()
+        if (switchTo || tabViews.size == 1) {
+            currentTab = tabViews.lastIndex
+            webContainer.removeAllViews()
+            webContainer.addView(view, FrameLayout.LayoutParams(MATCH, MATCH))
+            if (::address.isInitialized) address.setText(if (url == "about:blank") "" else url)
+        }
+        if (url != "about:blank") view.loadUrl(url)
+        updateTabStrip()
+        return view
+    }
+
+    private fun switchTab(index: Int) {
+        if (index !in tabViews.indices) return
+        currentTab = index
+        webContainer.removeAllViews()
+        webContainer.addView(web, FrameLayout.LayoutParams(MATCH, MATCH))
+        address.setText(web.url ?: "")
+        status.text = tabTitles[index]
+        updateNavigationButtons()
+        updateTabStrip()
+    }
+
+    private fun closeTab(index: Int) {
+        if (tabViews.size <= 1) {
+            web.loadUrl("https://www.google.com")
+            return
+        }
+        val closing = tabViews.removeAt(index)
+        tabTitles.removeAt(index)
+        closing.stopLoading()
+        closing.destroy()
+        if (index < currentTab) currentTab--
+        else if (index == currentTab) currentTab = minOf(index, tabViews.lastIndex)
+        switchTab(currentTab)
+    }
+
+    private fun updateTabStrip() {
+        if (!::tabStrip.isInitialized) return
+        tabStrip.removeAllViews()
+        tabViews.indices.forEach { index ->
+            val title = tabTitles.getOrNull(index)?.takeIf { it.isNotBlank() } ?: "New tab"
+            val chip = TextView(this).apply {
+                text = "${if (index == currentTab) "● " else ""}${title.take(22)}"
+                textSize = 13.5f
+                setTextColor(if (index == currentTab) Color.YELLOW else Color.rgb(255, 210, 70))
+                setPadding(dp(12), dp(7), dp(12), dp(7))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setBackgroundColor(if (index == currentTab) Color.rgb(55, 55, 55) else Color.rgb(95, 95, 95))
+                setOnClickListener { switchTab(index) }
+                setOnLongClickListener {
+                    if (tabViews.size > 1) {
+                        closeTab(index)
+                        toast("Tab closed")
+                    } else {
+                        web.loadUrl("https://www.google.com")
+                        tabTitles[0] = "New tab"
+                        updateTabStrip()
+                    }
+                    true
+                }
+            }
+            tabStrip.addView(chip, LinearLayout.LayoutParams(dp(150), dp(38)).apply { setMargins(dp(2), 0, dp(2), 0) })
+        }
+        val add = TextView(this).apply {
+            text = "+"
+            textSize = 24f
             gravity = Gravity.CENTER
-            minWidth = 0
-            minHeight = 0
-            setPadding(dp(2), 0, dp(2), 0)
-            isSoundEffectsEnabled = false
-            val keyFill = when {
-                label == "Enter" -> Color.rgb(190, 220, 248)
-                label == "← Backspace" || label == "Backspace" -> Color.rgb(248, 190, 190)
-                label.length == 1 && label[0].isDigit() -> Color.rgb(220, 190, 150)
-                else -> Color.rgb(250, 247, 235)
-            }
-            fun keyShape(fill: Int) = GradientDrawable().apply {
-                setColor(fill)
-                cornerRadius = dp(6).toFloat()
-                setStroke(dp(1), Color.rgb(160, 170, 185))
-            }
-            background = StateListDrawable().apply {
-                addState(intArrayOf(android.R.attr.state_pressed), keyShape(Color.rgb(255, 225, 35)))
-                addState(intArrayOf(), keyShape(keyFill))
-            }
-            isClickable = true
-            isFocusable = true
+            setTextColor(Color.YELLOW)
+            setPadding(dp(12), 0, dp(12), 0)
+            setOnClickListener { createTab("https://www.google.com", true) }
+        }
+        tabStrip.addView(add, LinearLayout.LayoutParams(dp(44), dp(38)))
+        tabScroll.post { tabScroll.fullScroll(View.FOCUS_RIGHT) }
+    }
+
+    private fun updateNavigationButtons() {
+        // Back and Forward remain clickable; their actions safely check WebView history.
+    }
+
+    private fun makeButton(label: String, minWidthDp: Int, heightDp: Int, action: () -> Unit): Button =
+        Button(this).apply {
+            text = label
+            textSize = 15.5f
+            setTextColor(Color.YELLOW)
+            isAllCaps = false
+            minHeight = dp(heightDp)
+            minimumHeight = dp(heightDp)
+            minWidth = dp(minWidthDp)
+            gravity = Gravity.TOP or Gravity.LEFT
+            textSize = 15.5f
+            setTextColor(Color.YELLOW)
+            setPadding(9, 5, 3, 2)
             setOnClickListener { action() }
         }
 
-    private fun showChoices(anchor: View, choices: List<String>) {
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(4), dp(4), dp(4), dp(4))
-            setBackgroundColor(Color.WHITE)
-        }
-        val popup = PopupWindow(content, -2, -2, true).apply {
-            isOutsideTouchable = true
-            elevation = dp(8).toFloat()
-        }
-        choices.forEach { value ->
-            content.addView(key(value, false) {
-                typeText(value)
-                popup.dismiss()
-            }, LinearLayout.LayoutParams(dp(48), dp(50)))
-        }
-        popup.showAsDropDown(anchor, 0, -dp(56))
+    private fun makeButton(label: String, minWidthDp: Int, action: () -> Unit): Button =
+        makeButton(label, minWidthDp, 54, action)
+
+    private fun navigate(input: String) {
+        val value = input.trim()
+        if (value.isEmpty()) return
+        val target = if (value.startsWith("http://") || value.startsWith("https://")) value
+        else if (value.contains(".") && !value.contains(" ")) "https://$value"
+        else "https://www.google.com/search?q=" + Uri.encode(value)
+        web.loadUrl(target)
+        (getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager)
+            .hideSoftInputFromWindow(address.windowToken, 0)
+        address.clearFocus()
     }
 
-    private fun keyWithCornerSymbol(
-        label: String,
-        corner: String,
-        longAction: ((View) -> Unit)? = null,
-        action: () -> Unit
-    ): View {
-        val box = FrameLayout(this)
-        val main = key(label, true, action)
-        if (longAction != null) main.setOnLongClickListener { longAction(main); true }
-        box.addView(main, FrameLayout.LayoutParams(-1, -1))
-        val mark = TextView(this).apply {
-            text = corner
-            textSize = 8f
-            setTextColor(buttonTextColor)
-            gravity = Gravity.TOP or Gravity.LEFT
-            setPadding(dp(2), dp(1), 0, 0)
-            isClickable = false
-            isFocusable = false
-        }
-        box.addView(mark, FrameLayout.LayoutParams(-1, -1))
-        return box
-    }
-
-    private fun enableRepeat(view: View, action: () -> Unit) {
-        var task: Runnable? = null
-        view.setOnTouchListener { _, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    view.isPressed = true
-                    task?.let { handler.removeCallbacks(it) }
-                    action()
-                    val repeat = object : Runnable {
-                        override fun run() {
-                            action()
-                            handler.postDelayed(this, 75)
-                        }
-                    }
-                    task = repeat
-                    handler.postDelayed(repeat, 380)
-                    true
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    view.isPressed = false
-                    task?.let { handler.removeCallbacks(it) }
-                    task = null
-                    true
-                }
-                else -> true
+    private fun showMainMenu() {
+        val items = arrayOf("New Tab", "Desktop Site", "Mobile Site", "Bookmarks", "History", "Downloads", "Settings", "Reload")
+        AlertDialog.Builder(this).setTitle("Basic Browser Work Menu").setItems(items) { _, which ->
+            when (which) {
+                0 -> createTab("https://www.google.com", switchTo = true)
+                1 -> setDesktopMode(true)
+                2 -> setDesktopMode(false)
+                3 -> showBookmarks()
+                4 -> showHistory()
+                5 -> showDownloadsInfo()
+                6 -> showSettings()
+                7 -> web.reload()
             }
-        }
+        }.show()
     }
 
-    private fun removeSuggestion(word: String) {
-        val prefs = getSharedPreferences("suggestions", Context.MODE_PRIVATE)
-        val items = prefs.getStringSet("items", emptySet())?.toMutableSet() ?: mutableSetOf()
-        items.remove(word)
-        prefs.edit().putStringSet("items", items).apply()
-        setInputView(buildKeyboard())
-    }
+    private fun desktopUserAgent(): String =
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
-    private fun toggleSelectMode() {
-        selectMode = !selectMode
-        setInputView(buildKeyboard())
-    }
-
-    private fun showSetup() {
-        val options = arrayOf("Standard", "Computer", "Mouse")
-        val current = when (layoutMode) { "computer" -> 1; "mouse" -> 2; else -> 0 }
-        AlertDialog.Builder(this)
-            .setTitle("Keyboard layout")
-            .setSingleChoiceItems(options, current) { dialog, which ->
-                layoutMode = when (which) { 1 -> "computer"; 2 -> "mouse"; else -> "standard" }
-                getSharedPreferences("appearance", Context.MODE_PRIVATE).edit()
-                    .putString("layout_mode", layoutMode).apply()
+    private fun showModeChooser() {
+        val modes = arrayOf("Mobile mode", "Desktop mode")
+        AlertDialog.Builder(this).setTitle("Choose website mode")
+            .setSingleChoiceItems(modes, if (desktopMode) 1 else 0) { dialog, which ->
                 dialog.dismiss()
-                setInputView(buildKeyboard())
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
+                setDesktopMode(which == 1)
+            }.setNegativeButton("Cancel", null).show()
     }
 
-    private fun exportSuggestions() {
-        val items = getSharedPreferences("suggestions", Context.MODE_PRIVATE)
-            .getStringSet("items", emptySet())?.toList().orEmpty().sorted()
-        val file = java.io.File(filesDir, "EasyKeys_Suggestions.txt")
-        file.writeText(items.joinToString("\n"), Charsets.UTF_8)
-        Toast.makeText(this, "Saved: ${file.name}", Toast.LENGTH_LONG).show()
-    }
-
-    private fun sendKeyCode(code: Int) {
-        val connection = currentInputConnection ?: return
-        val now = System.currentTimeMillis()
-        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0))
-        connection.sendKeyEvent(KeyEvent(System.currentTimeMillis(), now, KeyEvent.ACTION_UP, code, 0))
-    }
-
-    private fun sendArrow(keyCode: Int, selecting: Boolean = false) {
-        val connection = currentInputConnection ?: return
-        val meta = if (selecting) KeyEvent.META_SHIFT_ON else 0
-        val now = System.currentTimeMillis()
-        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, meta))
-        connection.sendKeyEvent(KeyEvent(System.currentTimeMillis(), now, KeyEvent.ACTION_UP, keyCode, meta))
-    }
-
-    private fun saveTextRanges(rangeTexts: List<String>, cut: Boolean) {
-        val connection = currentInputConnection
-        val request = ExtractedTextRequest().apply {
-            token = 0
-            hintMaxChars = 100000
-            hintMaxLines = 10000
+    private fun setDesktopMode(enabled: Boolean) {
+        desktopMode = enabled
+        prefs.edit().putBoolean("desktop_mode", enabled).apply()
+        tabViews.forEach { tab ->
+            tab.settings.userAgentString = if (enabled) desktopUserAgent() else WebSettings.getDefaultUserAgent(this)
+            tab.settings.useWideViewPort = true
+            tab.settings.loadWithOverviewMode = enabled
         }
-        val extracted = connection?.getExtractedText(request, 0)
-        val fullText = extracted?.text?.toString()
-        if (connection == null || extracted == null || fullText == null) {
-            Toast.makeText(this, "Cannot read editor text", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val lines = fullText.split("\n")
-        val starts = IntArray(lines.size)
-        var cursor = 0
-        lines.forEachIndexed { i, line -> starts[i] = cursor; cursor += line.length + 1 }
-        val ranges = mutableListOf<Triple<Int, Int, String>>()
-        rangeTexts.forEach { raw ->
-            val normalized = raw
-                .replace('۰', '0').replace('۱', '1').replace('۲', '2').replace('۳', '3')
-                .replace('۴', '4').replace('۵', '5').replace('۶', '6').replace('۷', '7')
-                .replace('۸', '8').replace('۹', '9')
-                .replace('٠', '0').replace('١', '1').replace('٢', '2').replace('٣', '3')
-                .replace('٤', '4').replace('٥', '5').replace('٦', '6').replace('٧', '7')
-                .replace('٨', '8').replace('٩', '9')
-            val match = Regex("^\\s*(\\d+)\\s*[-–—]\\s*(\\d+)\\s*$").matchEntire(normalized)
-            if (match != null) {
-                val first = match.groupValues[1].toIntOrNull() ?: return@forEach
-                val last = match.groupValues[2].toIntOrNull() ?: return@forEach
-                if (first >= 1 && last >= first && last <= lines.size) {
-                    val begin = starts[first - 1]
-                    val finish = if (last < lines.size) starts[last] - 1 else fullText.length
-                    ranges.add(Triple(begin, finish, lines.subList(first - 1, last).joinToString("\n")))
+        if (::modeButton.isInitialized) modeButton.text = if (enabled) "Desktop" else "Mobile"
+        web.reload()
+        status.text = if (enabled) "Desktop mode enabled" else "Mobile mode enabled"
+    }
+
+    private fun showSettings() {
+        val options = arrayOf("Zoom in", "Zoom out", "Reset zoom", "Desktop mode", "Mobile mode", "Search without images", "Disable JavaScript", "Clear browsing data")
+        AlertDialog.Builder(this).setTitle("Settings").setItems(options) { _, which ->
+            when (which) {
+                0 -> web.evaluateJavascript("document.body.style.zoom = (parseFloat(document.body.style.zoom || '1') + 0.1)", null)
+                1 -> web.evaluateJavascript("document.body.style.zoom = Math.max(0.1, parseFloat(document.body.style.zoom || '1') - 0.1)", null)
+                2 -> web.evaluateJavascript("document.body.style.zoom = '1'", null)
+                3 -> setDesktopMode(true)
+                4 -> setDesktopMode(false)
+                5 -> {
+                    val enabled = !prefs.getBoolean("images_enabled", true)
+                    prefs.edit().putBoolean("images_enabled", enabled).apply()
+                    tabViews.forEach { it.settings.loadsImagesAutomatically = enabled }
+                    toast(if (enabled) "Images enabled" else "Image-free browsing enabled")
+                    web.reload()
                 }
+                6 -> {
+                    val enabled = !prefs.getBoolean("javascript_enabled", true)
+                    prefs.edit().putBoolean("javascript_enabled", enabled).apply()
+                    tabViews.forEach { it.settings.javaScriptEnabled = enabled }val safeUrl = url.replace("&", "&amp;").replace
+                    toast(if (enabled) "JavaScript enabled" else "JavaScript disabled; some sites may not work")
+                    web.reload()
+                }
+                7 -> AlertDialog.Builder(this).setMessage("Clear cookies, cache and browsing history?")
+                    .setPositiveButton("Clear") { _, _ ->
+                        CookieManager.getInstance().removeAllCookies(null)
+                        web.clearCache(true); web.clearHistory()
+                        history.clear(); saveList("history", history)
+                        toast("Browsing data cleared")
+                    }.setNegativeButton("Cancel", null).show()
             }
-        }
-        if (ranges.isEmpty()) {
-            Toast.makeText(this, "Enter valid line ranges, e.g. 5-12", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val output = ranges.joinToString("\n\n--------------------\n\n") { it.third }
-        val file = java.io.File(filesDir, "EasyKeys_RangeCopies.txt")
-        file.writeText(output, Charsets.UTF_8)
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("EasyKeys ranges", output))
-        if (cut) {
-            var removedBefore = 0
-            val undoRanges = ranges.sortedBy { it.first }.map { range ->
-                val compacted = extracted.startOffset + range.first - removedBefore
-                removedBefore += range.second - range.first
-                RangeDeletion(
-                    originalStart = extracted.startOffset + range.first,
-                    compactedStart = compacted,
-                    text = range.third
-                )
+        }.show()
+    }
+
+    private fun showTabs() {
+        val labels = tabViews.indices.map { i ->
+            "${if (i == currentTab) "✓ " else ""}${i + 1}. ${tabTitles[i].take(45)}"
+        }.toMutableList()
+        labels.add("＋ New tab")
+        AlertDialog.Builder(this).setTitle("Tabs (${tabViews.size})")
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == tabViews.size) createTab("https://www.google.com", true)
+                else {
+                    val actions = arrayOf("Open this tab", "Close this tab")
+                    AlertDialog.Builder(this).setTitle(labels[which]).setItems(actions) { _, action ->
+                        if (action == 0) switchTab(which) else closeTab(which)
+                    }.show()
+                }
+            }.setNegativeButton("Done", null).show()
+    }
+
+    private fun showHistory() = showUrlList("History", history.asReversed(), false)
+    private fun showBookmarks() {
+        val choices = arrayOf("Open saved bookmarks", "Add current page to Home", "Open Home", "Manage saved bookmarks")
+        AlertDialog.Builder(this).setTitle("Bookmarks").setItems(choices) { _, which ->
+            when (which) {
+                0 -> showUrlList("Bookmarks", bookmarks, true)
+                1 -> {
+                    val url = web.url ?: return@setItems
+                    if (!url.startsWith("http") || url.contains("main-browser.home")) { toast("Open a website before bookmarking"); return@setItems }
+                    if (!bookmarks.contains(url)) bookmarks.add(url)
+                    saveList("bookmarks", bookmarks)
+                    toast("Bookmark added to Home")
+                }
+                2 -> showHome()
+                3 -> showUrlList("Saved Bookmarks", bookmarks, true)
             }
-            ranges.sortedByDescending { it.first }.forEach { range ->
-                val start = extracted.startOffset + range.first
-                val end = extracted.startOffset + range.second
-                connection.setSelection(start, end)
-                connection.commitText("", 1)
-            }
-            undoStack.add(EditAction("", "", undoRanges))
-            redoStack.clear()
-        }
-        Toast.makeText(this, "Saved ${ranges.size} range(s): ${file.name}", Toast.LENGTH_LONG).show()
+        }.show()
     }
 
-    private fun replaceLineRangeFromClipboard(rawRange: String) {
-        val connection = currentInputConnection
-        val extracted = connection?.getExtractedText(ExtractedTextRequest().apply {
-            token = 0
-            hintMaxChars = 100000
-            hintMaxLines = 10000
-        }, 0)
-        val fullText = extracted?.text?.toString()
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val replacement = clipboard.primaryClip?.takeIf { it.itemCount > 0 }
-            ?.getItemAt(0)?.coerceToText(this)?.toString()
-        if (connection == null || extracted == null || fullText == null) {
-            Toast.makeText(this, "Cannot read editor text", Toast.LENGTH_SHORT).show()
-            return
+    private fun showHome() {
+        val entries = bookmarks.distinct()
+        val rows = if (entries.isEmpty()) {
+            "<p class='empty'>No bookmarks yet. Use Bookmarks → Add current page to Home.</p>"
+        } else entries.joinToString("") { url ->
+             val safeUrl = url.replace("&", "&amp;").replace("\"", "&quot;").replace("<", "&lt;").replace(">", "&gt;")
+            val label = compactAddress(url).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            "<a class='item' href=\"$safeUrl\">$label</a>"
         }
-        if (replacement.isNullOrEmpty()) {
-            Toast.makeText(this, "Copy the replacement text first", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val normalized = rawRange
-            .replace('۰', '0').replace('۱', '1').replace('۲', '2').replace('۳', '3')
-            .replace('۴', '4').replace('۵', '5').replace('۶', '6').replace('۷', '7')
-            .replace('۸', '8').replace('۹', '9')
-            .replace('٠', '0').replace('١', '1').replace('٢', '2').replace('٣', '3')
-            .replace('٤', '4').replace('٥', '5').replace('٦', '6').replace('٧', '7')
-            .replace('٨', '8').replace('٩', '9')
-        val match = Regex("^\\s*(\\d+)\\s*[-–—]\\s*(\\d+)\\s*$").matchEntire(normalized)
-        val first = match?.groupValues?.get(1)?.toIntOrNull()
-        val last = match?.groupValues?.get(2)?.toIntOrNull()
-        val lines = fullText.split("\n")
-        if (first == null || last == null || first < 1 || last < first || last > lines.size) {
-            Toast.makeText(this, "Enter a valid range, e.g. 5-12", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val starts = IntArray(lines.size)
-        var cursor = 0
-        lines.forEachIndexed { index, line ->
-            starts[index] = cursor
-            cursor += line.length + 1
-        }
-        val start = extracted.startOffset + starts[first - 1]
-        val endInText = if (last < lines.size) starts[last] else fullText.length
-        val end = extracted.startOffset + endInText
-        val textToInsert = if (last < lines.size) replacement.trimEnd('\n') + "\n"
-            else replacement
-        connection.beginBatchEdit()
-        try {
-            connection.setSelection(start, end)
-            connection.commitText(textToInsert, 1)
-            undoStack.add(EditAction(fullText.substring(starts[first - 1], endInText), textToInsert))
-            redoStack.clear()
-        } finally {
-            connection.endBatchEdit()
-        }
-        Toast.makeText(this, "Lines $first-$last replaced from clipboard", Toast.LENGTH_SHORT).show()
+        val html = """
+            <!doctype html><html><head><meta name='viewport' content='width=device-width, initial-scale=1'>
+            <title>Basic Browser Work Home</title><style>
+            body{font-family:sans-serif;background:#202020;color:#fff;padding:18px}
+            h2{color:#ffd54f} .item{display:block;padding:15px;margin:9px 0;background:#383838;
+            border-radius:8px;color:#ffe082;text-decoration:none;font-size:16px}
+            .empty{color:#bbb;font-size:15px}
+            </style></head><body><h2>Basic Browser Work</h2>$rows</body></html>
+        """.trimIndent()
+        web.loadDataWithBaseURL("https://main-browser.home/", html, "text/html", "UTF-8", null)
+        status.text = "Home • ${entries.size} bookmarks"
     }
 
-    private fun showSymbols() {
-        val symbols = listOf(
-            "©","®","™","§","¶","•","…","‰","°","℃",
-            "℉","№","₽","$","€","£","¥","¢","₹","₩",
-            "+","−","×","÷","=","≠","≈","≡","<",">",
-            "≤","≥","±","√","∞","∑","∏","∫","π","%","‰",
-            "&","@","#","*","/","\\","|","~","^","_",
-            "←","→","↑","↓","↔","↕","○","●","□","■"
-        ).take(60)
-        showGrid("60 Symbols", symbols, 6)
+    private fun showUrlList(title: String, values: List<String>, open: Boolean) {
+        if (values.isEmpty()) { toast("No items"); return }
+        val labels = values.map { compactAddress(it) }
+        AlertDialog.Builder(this).setTitle(title).setItems(labels.toTypedArray()) { _, index ->
+            if (open) web.loadUrl(values[index])
+            else AlertDialog.Builder(this).setMessage(compactAddress(values[index])).setPositiveButton("Open") { _, _ -> web.loadUrl(values[index]) }
+                .setNegativeButton("Close", null).show()
+        }.setNegativeButton("Close", null).show()
     }
 
-    private fun showEmojiPicker() {
-       val groups = linkedMapOf(
-            "Faces" to listOf("😀","😃","😄","😁","😆","😅","😂","🤣","😊","😇","🙂","🙃","😉","😍","🥰","😘","😋","😎","🤔","🤗","😭","😢","😡","🥳","😴"),
-            "Animals" to listOf("🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🐔","🐧","🐦","🦆","🦉","🐴","🦄","🐝","🦋","🐢"),
-            "Food" to listOf("🍎","🍐","🍊","🍋","🍌","🍉","🍇","🍓","🫐","🍒","🍑","🥭","🍍","🥥","🥑","🍅","🥕","🌽","🥦","🍞","🧀","🍕","🍔","🍟","🍰"),
-            "Nature" to listOf("🌞","🌝","🌚","⭐","🌟","🌈","☁️","🌧️","⛈️","❄️","🔥","💧","🌊","🌸","🌹","🌻","🌳","🍀","🌵","🌴","🌍","🌙","☀️","⚡","🌪️"),
-            "Activities" to listOf("⚽","🏀","🏈","⚾","🎾","🏐","🎱","🏓","🏸","🥊","🥋","🎯","🎮","🎲","🎸","🎹","🎤","🎧","🎨","🎭","🏆","🥇","🚴","🏊","⛷️"),
-            "Objects" to listOf("⌚","📱","💻","⌨️","🖥️","🖨️","📷","📹","📺","📻","🔋","💡","🔦","📚","✏️","🖊️","📌","📎","🔒","🔑","🔨","⚙️","🧰","🎁","📦"),
-            "Hearts" to listOf("❤️","🧡","💛","💚","💙","💜","🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖","💘","💝","💟","♥️","♡","💌","💋","💍","✨"),
-            "Travel" to listOf("🚗","🚕","🚌","🚎","🏎️","🚓","🚑","🚒","🚲","🛵","🏍️","✈️","🚀","🚢","⛵","🚆","🚇","🚉","🏠","🏢","🏰","🗼","🗽","⛺","🗺️"),
-            "Folders & Files" to listOf("📁","📂","🗂️","🗃️","🗄️","📄","📃","📑","🧾","📜","📋","📇","🗒️","🗓️","📅","📆","🗞️","📰","📓","📔","📒","📕","📗","📘","📙","📚","📖","🔖","📌","📍","✂️","🖇️","📎","🖊️","🖋️","✒️","🖌️","🖍️","📝"),
-            "Asia Flags" to listOf("🇮🇷","🇨🇳","🇮🇳","🇯🇵","🇰🇷","🇸🇦","🇹🇷","🇵🇰","🇮🇩","🇹🇭","🇻🇳","🇲🇾","🇸🇬","🇦🇪","🇶🇦","🇮🇶","🇦🇫","🇧🇩","🇱🇰","🇳🇵"),
-            "Europe Flags" to listOf("🇬🇧","🇫🇷","🇩🇪","🇮🇹","🇪🇸","🇵🇹","🇳🇱","🇧🇪","🇨🇭","🇦🇹","🇸🇪","🇳🇴","🇫🇮","🇩🇰","🇬🇷","🇵🇱","🇺🇦","🇷🇺","🇮🇪","🇨🇿"),
-            "Africa Flags" to listOf("🇪🇬","🇿🇦","🇳🇬","🇰🇪","🇲🇦","🇩🇿","🇹🇳","🇬🇭","🇪🇹","🇹🇿","🇺🇬","🇸🇳","🇨🇮","🇨🇲","🇦🇴","🇸🇩","🇱🇾","🇿🇼","🇧🇼","🇷🇼"),
-            "N. America Flags" to listOf("🇺🇸","🇨🇦","🇲🇽","🇨🇺","🇯🇲","🇵🇦","🇨🇷","🇬🇹","🇭🇳","🇩🇴","🇭🇹","🇧🇸","🇧🇧","🇹🇹","🇧🇿"),
-            "S. America Flags" to listOf("🇧🇷","🇦🇷","🇨🇱","🇨🇴","🇵🇪","🇻🇪","🇪🇨","🇺🇾","🇵🇾","🇧🇴","🇬🇾","🇸🇷"),
-            "Oceania Flags" to listOf("🇦🇺","🇳🇿","🇫🇯","🇵🇬","🇼🇸","🇹🇴","🇻🇺","🇸🇧","🇰🇮","🇫🇲","🇵🇼","🇲🇭")
-        )
-        // Keep each emoji category scrollable with at least 70 distinct entries.
-        val supplementalEmoji = listOf(
-            "🫠","🫢","🫣","🫡","🫥","🫤","🥹","🫶","🫰","🤌",
-            "🤏","🫳","🫴","🫱","🫲","🫸","🫷","🫵","🫦","🧏",
-            "🧑","👨","👩","🧒","👶","👵","👴","🧔","👮","👷",
-            "🧑‍⚕️","🧑‍🍳","🧑‍🎓","🧑‍🏫","🧑‍💻","🧑‍🔧","🧑‍🚀","🧑‍🎨","🧑‍🚒","🧑‍✈️",
-            "🐈‍⬛","🦬","🦣","🦫","🦥","🦦","🦨","🦡","🦤","🪿",
-            "🪼","🪸","🪷","🪻","🪴","🪹","🪺","🪵","🪨","🪬",
-            "🫧","🪩","🪅","🪆","🪇","🪈","🪉","🪏","🪙","🪪"
-        )
-        groups.keys.toList().forEach { name ->
-            groups[name] = (groups[name].orEmpty() + supplementalEmoji).distinct().take(70)
-        }
-        groups["Colored Shapes"] = listOf(
-            "🔴","🟠","🟡","🟢","🔵","🟣","🟤","⚫","⚪","🟥",
-            "🟧","🟨","🟩","🟦","🟪","🟫","⬛","⬜","🔶","🔷",
-            "🔸","🔹","🔺","🔻","💠","🔘","🔳","🔲","◼️","◻️",
-            "◾","◽","▪️","▫️","❤️","🧡","💛","💚","💙","💜",
-            "🖤","🤍","🤎","💔","❣️","💕","💞","💓","💗","💖",
-            "💘","💝","💟","♥️","♡","✨","⭐","🌟","☀️","🌙",
-            "☁️","⚡","🔥","💧","🌈","❄️","🌸","🌹","🌻","🍀"
-        ).distinct().take(70)
-        
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(6), dp(6), dp(6), dp(6)) }
-        val tabs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val tabsScroll = HorizontalScrollView(this).apply {
-            isHorizontalScrollBarEnabled = false
-            addView(tabs)
-        }
-        val popup = PopupWindow(root, -1, dp(300), true).apply { isOutsideTouchable = true; elevation = dp(8).toFloat() }
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(content) }
-        root.addView(tabsScroll, LinearLayout.LayoutParams(-1, dp(42)))
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        fun render(items: List<String>) {
-            content.removeAllViews()
-            items.chunked(8).forEach { group ->
-                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-                group.forEach { emoji -> row.addView(key(emoji, false, false) { typeText(emoji); popup.dismiss() }, LinearLayout.LayoutParams(0, dp(42), 1f)) }
-                content.addView(row)
-            }
-        }
-        groups.forEach { (name, items) ->
-            tabs.addView(key(name, true) { render(items); popup.update() }, LinearLayout.LayoutParams(-2, dp(38)))
-        }
-        render(groups.values.first())
-        popup.showAtLocation(window.window?.decorView ?: root, Gravity.BOTTOM, 0, dp(260))
-    }
-
-    private fun showGrid(title: String, items: List<String>, columns: Int) {
-        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(6), dp(6), dp(6), dp(6)) }
-        root.addView(TextView(this).apply { text = title; setTextColor(Color.DKGRAY); textSize = 14f })
-        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(content) }
-        lateinit var popup: PopupWindow
-        items.chunked(columns).forEach { group ->
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            group.forEach { item ->
-                val symbolButton = key(item, false) { typeText(item); popup.dismiss() }
-                row.addView(symbolButton, LinearLayout.LayoutParams(0, dp(44), 1f))
-            }
-            content.addView(row)
-        }
-        root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        popup = PopupWindow(root, -1, dp(280), true).apply { isOutsideTouchable = true; elevation = dp(8).toFloat() }
-        popup.showAtLocation(window.window?.decorView ?: root, Gravity.BOTTOM, 0, dp(260))
-    }
-    private var popupDismiss: (() -> Unit)? = null
-
-    private fun saveSuggestion() {
-        val ic = currentInputConnection ?: return
-        val selected = ic.getSelectedText(0)?.toString()
-        val candidate = if (!selected.isNullOrBlank()) selected else ic.getTextBeforeCursor(120, 0)?.toString()?.trim()?.takeLast(80)
-        if (candidate.isNullOrBlank()) {
-            Toast.makeText(this, "Select or type a word/sentence first", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val prefs = getSharedPreferences("suggestions", Context.MODE_PRIVATE)
-        val items = prefs.getStringSet("items", emptySet())?.toMutableSet() ?: mutableSetOf()
-        items.add(candidate)
-        prefs.edit().putStringSet("items", items).apply()
-        Toast.makeText(this, "Saved to suggestions", Toast.LENGTH_SHORT).show()
-        setInputView(buildKeyboard())
-    }
-
-    private fun deleteOne() {
-        val connection = currentInputConnection ?: return
-        val selected = connection.getSelectedText(0)?.toString().orEmpty()
-        val removed = if (selected.isNotEmpty()) selected else {
-            val before = connection.getTextBeforeCursor(2, 0)?.toString().orEmpty()
-            if (before.isEmpty()) "" else {
-                val last = before.codePointBefore(before.length)
-                String(Character.toChars(last))
-            }
-        }
-        if (removed.isEmpty()) return
-        if (selected.isNotEmpty()) connection.commitText("", 1)
-        else connection.deleteSurroundingText(removed.length, 0)
-        undoStack.add(EditAction(removed, ""))
-        redoStack.clear()
-    }
-
-    private fun answerCurrentEditor() {
-        val connection = currentInputConnection ?: return
-        val action = currentInputEditorInfo?.imeOptions?.and(EditorInfo.IME_MASK_ACTION) ?: EditorInfo.IME_ACTION_UNSPECIFIED
-        if (action != EditorInfo.IME_ACTION_UNSPECIFIED && action != EditorInfo.IME_ACTION_NONE) {
-            if (connection.performEditorAction(action)) return
-        }
-        if (connection.performEditorAction(EditorInfo.IME_ACTION_SEND)) return
-        val now = System.currentTimeMillis()
-        connection.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER, 0))
-        connection.sendKeyEvent(KeyEvent(System.currentTimeMillis(), now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER, 0))
-    }
-
-    private fun sendArrow(keyCode: Int) {
-        val c = currentInputConnection ?: return
-        val now = System.currentTimeMillis()
-        c.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, 0))
-        c.sendKeyEvent(KeyEvent(System.currentTimeMillis(), now, KeyEvent.ACTION_UP, keyCode, 0))
-    }
-
-    private fun copySelection() {
-        val selected = currentInputConnection?.getSelectedText(0)?.toString()
-        if (selected.isNullOrEmpty()) { Toast.makeText(this, "Select text first", Toast.LENGTH_SHORT).show(); return }
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        clipboard.setPrimaryClip(ClipData.newPlainText("Copied text", selected))
+    private fun compactAddress(value: String): String {
+        return try {
+            val uri = Uri.parse(value)
+            val host = uri.host ?: value
+            val path = uri.path.orEmpty().take(36)
+            (host + path).take(64)
+        } catch (_: Exception) { value.take(64) }
     }
 
     private fun pasteFromClipboard() {
-        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val text = clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-        if (!text.isNullOrEmpty()) typeText(text)
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        val text = clipboard.primaryClip?.getItemAt(0)?.coerceToText(this)?.toString()
+        if (text.isNullOrEmpty()) { toast("Clipboard is empty"); return }
+        web.evaluateJavascript("""(function(){let e=document.activeElement;if(!e||!(e.isContentEditable||/^(TEXTAREA|INPUT)$/.test(e.tagName)))return 'NO_FIELD';e.focus();const v=${JSONObject.quote(text)};if(e.isContentEditable){document.execCommand('insertText',false,v);}else{const a=e.selectionStart??e.value.length,b=e.selectionEnd??e.value.length;e.setRangeText(v,a,b,'end');e.dispatchEvent(new Event('input',{bubbles:true}));}return 'PASTED';})()""") { r -> toast(if (r?.contains("PASTED") == true) "Pasted" else "Tap a text field first") }
     }
 
-    private fun typeText(text: String) {
-        val connection = currentInputConnection ?: return
-        val removed = connection.getSelectedText(0)?.toString().orEmpty()
-        connection.commitText(text, 1)
-        if (removed != text) {
-            undoStack.add(EditAction(removed, text))
-            redoStack.clear()
+    private fun toggleFullScreen() {
+        fullScreen = !fullScreen
+        headerBar.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        navBar.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        bottomBar.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        status.visibility = if (fullScreen) View.GONE else View.VISIBLE
+        window.decorView.systemUiVisibility = if (fullScreen) (View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY) else View.SYSTEM_UI_FLAG_VISIBLE
+    }
+
+    private fun showDownloadsInfo() {
+        val manager = getSystemService(DOWNLOAD_SERVICE) as DownloadManager
+        val cursor = manager.query(DownloadManager.Query())
+        val rows = mutableListOf<Pair<Long, String>>()
+        cursor?.use {
+            val idCol = it.getColumnIndex(DownloadManager.COLUMN_ID)
+            val titleCol = it.getColumnIndex(DownloadManager.COLUMN_TITLE)
+            val statusCol = it.getColumnIndex(DownloadManager.COLUMN_STATUS)
+            while (it.moveToNext()) {
+                val id = it.getLong(idCol)
+                val title = it.getString(titleCol) ?: "Download"
+                val state = when (it.getInt(statusCol)) {
+                    DownloadManager.STATUS_SUCCESSFUL -> "Completed"
+                    DownloadManager.STATUS_FAILED -> "Failed"
+                    DownloadManager.STATUS_RUNNING -> "Downloading"
+                    DownloadManager.STATUS_PAUSED -> "Paused"
+                    else -> "Pending"
+                }
+                rows.add(id to "$title — $state")
+            }
+        }
+        val labels = rows.map { it.second }.toMutableList()
+        labels.add("Open device Downloads folder")
+        AlertDialog.Builder(this).setTitle("Downloads").setItems(labels.toTypedArray()) { _, which ->
+            if (which == rows.size) {
+                try { startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS)) }
+                catch (_: Exception) { toast("Open the Downloads folder in your file manager") }
+            } else {
+                try {
+                    val uri = manager.getUriForDownloadedFile(rows[which].first)
+                    if (uri != null) startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(uri, contentResolver.getType(uri) ?: "*/*").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                    else toast("This download is not ready yet")
+                } catch (_: Exception) { toast("Unable to open downloaded file") }
+            }
+        }.setNegativeButton("Close", null).show()
+    }
+
+    private fun startDownload(item: PendingDownload) {
+        val uri = Uri.parse(item.url)
+        if (uri.scheme != "http" && uri.scheme != "https") {
+            when (uri.scheme?.lowercase(Locale.ROOT)) {
+                "blob", "data" -> downloadPageGeneratedUrl(web, item.url, item.disposition, item.mimeType)
+                "content", "file" -> copyLocalUriToDownloads(uri, item.disposition, item.mimeType)
+                else -> toast("Unsupported download link type")
+            }
+            return
+        }
+        if (Build.VERSION.SDK_INT in 23..28 &&
+            checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+            pendingDownload = item
+            requestPermissions(arrayOf(Manifest.permission.WRITE_EXTERNAL_STORAGE), 808)
+            return
+        }
+        try {
+            val ext = MimeTypeMap.getFileExtensionFromUrl(item.url)
+            val visibleName = downloadLinkNames.remove(item.url)
+            val selectedName = visibleName?.takeIf { it.isNotBlank() }?.let { label ->
+                val cleaned = safeDownloadName(label)
+                if (cleaned.contains('.') || ext.isBlank()) cleaned else "$cleaned.$ext"
+            } ?: guessName(item.disposition, item.url)
+            val name = safeDownloadName(selectedName)
+            val mime = item.mimeType?.takeIf { it.isNotBlank() }
+                ?: MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+            val request = DownloadManager.Request(uri)
+                .setTitle(name)
+                .setDescription("Basic Browser Work download")
+                .setMimeType(mime)
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setAllowedOverRoaming(true)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            if (Build.VERSION.SDK_INT >= 24) request.setAllowedOverMetered(true)
+            item.userAgent?.takeIf { it.isNotBlank() }?.let { request.addRequestHeader("User-Agent", it) }
+            CookieManager.getInstance().getCookie(item.url)?.let { request.addRequestHeader("Cookie", it) }
+            web.url?.let { request.addRequestHeader("Referer", it) }
+            val id = (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
+            prefs.edit().putLong("last_download_id", id).apply()
+            status.text = "Download queued: $name"
+            toast("Download started")
+        } catch (e: Exception) {
+            status.text = "Download failed to start"
+            toast("Download error: ${e.message ?: "unknown error"}")
         }
     }
 
-    private fun undo() {
-        val connection = currentInputConnection ?: return
-        val action = undoStack.removeLastOrNull() ?: return
-        if (action.rangeDeletions.isNotEmpty()) {
-            action.rangeDeletions.sortedByDescending { it.compactedStart }.forEach { range ->
-                connection.setSelection(range.compactedStart, range.compactedStart)
-                connection.commitText(range.text, 1)
+    private fun downloadPageGeneratedUrl(view: WebView, url: String, disposition: String?, mime: String?) {
+        val name = safeDownloadName(guessName(disposition, url))
+        val quotedUrl = JSONObject.quote(url)
+        val quotedName = JSONObject.quote(name)
+        val quotedMime = JSONObject.quote(mime ?: "application/octet-stream")
+        view.evaluateJavascript("""
+            (async function(){
+              try {
+                const response = await fetch($quotedUrl, {credentials:'include'});
+                if (!response.ok && response.status !== 0) throw new Error('HTTP ' + response.status);
+                const blob = await response.blob();
+                const name = $quotedName;
+                const type = blob.type || $quotedMime || 'application/octet-stream';
+                window.BasicBrowserWorkDownloadBridge.beginGeneratedDownload(name, type);
+                const reader = blob.stream().getReader();
+                while (true) {
+                  const part = await reader.read();
+                  if (part.done) break;
+                  const bytes = part.value;
+                  let binary = '';
+                  for (let i=0; i<bytes.length; i+=0x8000) {
+                    binary += String.fromCharCode.apply(null, bytes.subarray(i, Math.min(i+0x8000, bytes.length)));
+                  }
+                  window.BasicBrowserWorkDownloadBridge.appendGeneratedDownload(btoa(binary));
+                }
+                window.BasicBrowserWorkDownloadBridge.finishGeneratedDownload();
+                return 'OK';
+              } catch(e) {
+                window.BasicBrowserWorkDownloadBridge.failGeneratedDownload(String(e));
+                return 'ERROR:' + String(e);
+              }
+            })()
+        """.trimIndent()) { result ->
+            val value = result?.trim('"') ?: ""
+            if (value.startsWith("ERROR:")) {
+                status.text = "Generated download failed"
+                toast("Cannot download this generated file: ${value.removePrefix("ERROR:")}")
+            } else if (value == "OK") {
+                status.text = "Generated file saved"
             }
-        } else {
-            if (action.insertedText.isNotEmpty()) {
-                connection.deleteSurroundingText(action.insertedText.length, 0)
-            }
-            if (action.removedText.isNotEmpty()) connection.commitText(action.removedText, 1)
         }
-        redoStack.add(action)
     }
 
-    private fun redo() {
-        val connection = currentInputConnection ?: return
-        val action = redoStack.removeLastOrNull() ?: return
-        if (action.rangeDeletions.isNotEmpty()) {
-            action.rangeDeletions.sortedByDescending { it.originalStart }.forEach { range ->
-                connection.setSelection(range.originalStart, range.originalStart + range.text.length)
-                connection.commitText("", 1)
-            }
-        } else {
-            if (action.removedText.isNotEmpty()) {
-                connection.deleteSurroundingText(action.removedText.length, 0)
-                                     
+    inner class DownloadNameBridge {
+        @JavascriptInterface
+        fun remember(url: String, readableName: String) {
+            val clean = readableName.trim().replace(Regex("[\\r\\n\\t]+"), " ").take(100)
+            if (clean.isNotBlank() && (url.startsWith("http://") || url.startsWith("https://"))) downloadLinkNames[url] = clean
+        }
+    }
+
+    inner class DownloadBridge {
+        @JavascriptInterface fun beginGeneratedDownload(name: String, mime: String) {
+            synchronized(this@MainActivity) {
+                try {
+                    blobOutput?.close()
+                    blobDisplayName = safeDownloadName(name)
+                    blobMimeType = mime.ifBlank { "application/octet-stream" }
+                    blobBytes = 0L
+                    blobTempFile = File(cacheDir, "mainbrowser_${System.currentTimeMillis()}.part")
+                    blobOutput = FileOutputStream(blobTempFile!!)
